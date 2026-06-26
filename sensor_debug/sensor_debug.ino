@@ -1,32 +1,47 @@
-// AE-NJL5901AR-8CH 红外传感器调试
-// D32 D33 D34 D35 VP(36) VN(39) D13 D14 → CH1~CH8
-// 注意：D13/D14 是 ADC2 引脚，WiFi/BT 启用时不可用
+// AE-NJL5901AR-8CH 红外传感器调试（蓝牙版）
+// 只使用中心两路：D35(CH4) 和 VP/GPIO36(CH5)，均为 ADC1，蓝牙兼容
+// 手机安装 "Serial Bluetooth Terminal" 连接设备名 "ESP32-Sensor"
 
-const int sensorPins[8] = {32, 33, 34, 35, 36, 39, 13, 14};
-const char* chNames[8]  = {"CH1", "CH2", "CH3", "CH4", "CH5", "CH6", "CH7", "CH8"};
+#include "BluetoothSerial.h"
+BluetoothSerial SerialBT;
 
-// 判断是否触线的阈值（根据实际环境调整）
+const int PIN_L = 35;  // D35 - 左中传感器
+const int PIN_R = 36;  // VP  - 右中传感器
+
+// 阈值：低于此值视为检测到黑线（根据实际环境调整）
 const int THRESHOLD = 2000;
 
 void setup() {
   Serial.begin(115200);
   analogReadResolution(12);  // 12位：0~4095
-  delay(500);
-  Serial.println("\n=== AE-NJL5901AR-8CH 传感器调试 ===");
-  Serial.println(" CH1   CH2   CH3   CH4   CH5   CH6   CH7   CH8   | 触线状态");
-  Serial.println("---------------------------------------------------+----------");
+
+  SerialBT.begin("ESP32-Sensor");
+
+  Serial.println("蓝牙已启动，等待连接...");
+  SerialBT.println("=== 传感器调试就绪 ===");
+  SerialBT.println("  左(D35)   右(VP)   状态");
+  SerialBT.println("---------------------------");
 }
 
 void loop() {
-  char line[16];  // 触线可视化：1=触线，0=未触线
+  int valL = analogRead(PIN_L);
+  int valR = analogRead(PIN_R);
 
-  for (int i = 0; i < 8; i++) {
-    int val = analogRead(sensorPins[i]);
-    Serial.printf("%4d  ", val);
-    line[i] = (val < THRESHOLD) ? '1' : '0';  // 低值=检测到黑线（视传感器而定）
-  }
-  line[8] = '\0';
-  Serial.printf("| %s\n", line);
+  bool onLineL = valL < THRESHOLD;
+  bool onLineR = valR < THRESHOLD;
 
-  delay(1000);
+  // 判断位置
+  const char* status;
+  if (onLineL && onLineR)       status = "正中";
+  else if (onLineL && !onLineR) status = "偏右";
+  else if (!onLineL && onLineR) status = "偏左";
+  else                          status = "脱线";
+
+  char msg[48];
+  snprintf(msg, sizeof(msg), "  %4d      %4d     %s", valL, valR, status);
+
+  Serial.println(msg);
+  SerialBT.println(msg);
+
+  delay(200);  // 改为200ms，调试更流畅
 }
