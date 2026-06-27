@@ -14,7 +14,15 @@ void setup() {
 
   sensor_begin();
   bt_begin("LineTrace");
-  Serial.println("传感器模块测试启动");
+
+  // 启动时打印一次阈值
+  char thr[64];
+  snprintf(thr, sizeof(thr), "阈值: %4d %4d %4d %4d %4d\n",
+           sensor_get_threshold(0), sensor_get_threshold(1),
+           sensor_get_threshold(2), sensor_get_threshold(3),
+           sensor_get_threshold(4));
+  Serial.print(thr);
+  bt_send(thr);
 }
 
 void loop() {
@@ -29,16 +37,14 @@ void loop() {
   count++;
   char buf[96];
 
-  // 原始值
-  snprintf(buf, sizeof(buf), "[%d] 原始: %4d %4d %4d %4d %4d",
-           count, vals[0], vals[1], vals[2], vals[3], vals[4]);
-  Serial.print(buf); bt_send(buf);
-
-  // 二值（W=白 B=黑）+ 位置
-  snprintf(buf, sizeof(buf), "  |  %c%c%c%c%c  pos:%.2f\n",
-           is_white[0]?'W':'B', is_white[1]?'W':'B',
-           is_white[2]?'W':'B', is_white[3]?'W':'B',
-           is_white[4]?'W':'B',
+  // 每路：值(W/B)，格式如 590W 2500B
+  snprintf(buf, sizeof(buf), "[%d] %4d%c %4d%c %4d%c %4d%c %4d%c  pos:%.2f\n",
+           count,
+           vals[0], is_white[0]?'W':'B',
+           vals[1], is_white[1]?'W':'B',
+           vals[2], is_white[2]?'W':'B',
+           vals[3], is_white[3]?'W':'B',
+           vals[4], is_white[4]?'W':'B',
            isnan(pos) ? 0.0f : pos);
   Serial.print(buf); bt_send(buf);
 

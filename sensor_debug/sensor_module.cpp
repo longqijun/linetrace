@@ -24,6 +24,10 @@ void sensor_binary(bool is_white[SENSOR_COUNT]) {
   }
 }
 
+int sensor_get_threshold(int index) {
+  return THRESHOLD[index];
+}
+
 // 加权位置：传感器索引0~4，中心为2，归一化到-1~+1
 float sensor_position() {
   bool is_white[SENSOR_COUNT];

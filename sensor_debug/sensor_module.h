@@ -9,3 +9,4 @@ void sensor_begin();
 void sensor_read(int values[SENSOR_COUNT]);           // 原始ADC值
 void sensor_binary(bool is_white[SENSOR_COUNT]);      // true=白线, false=黑色
 float sensor_position();  // -1.0(最左) ~ 0(居中) ~ +1.0(最右)，NAN=丢线
+int sensor_get_threshold(int index);                  // 获取某路阈值
