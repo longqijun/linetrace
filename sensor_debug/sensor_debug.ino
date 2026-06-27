@@ -2,6 +2,7 @@
 #include "soc/rtc_cntl_reg.h"
 #include "bt_module.h"
 #include "sensor_module.h"
+#include "cmd_module.h"
 
 const int LED_PIN = 2;
 int count = 0;
@@ -14,6 +15,7 @@ void setup() {
 
   sensor_begin();
   bt_begin("LineTrace");
+  cmd_begin();
 
   // 启动时打印一次阈值
   char thr[64];
@@ -28,25 +30,28 @@ void setup() {
 void loop() {
   digitalWrite(LED_PIN, bt_connected() ? HIGH : LOW);
 
-  int vals[SENSOR_COUNT];
-  bool is_white[SENSOR_COUNT];
-  sensor_read(vals);
-  sensor_binary(is_white);
-  float pos = sensor_position();
+  cmd_poll();  // 处理BT命令输入
 
-  count++;
-  char buf[96];
+  if (cmd_print_enabled()) {
+    int vals[SENSOR_COUNT];
+    bool is_white[SENSOR_COUNT];
+    sensor_read(vals);
+    sensor_binary(is_white);
+    float pos = sensor_position();
 
-  // 每路：值(W/B)，格式如 590W 2500B
-  snprintf(buf, sizeof(buf), "[%d] %4d%c %4d%c %4d%c %4d%c %4d%c  pos:%.2f\n",
-           count,
-           vals[0], is_white[0]?'W':'B',
-           vals[1], is_white[1]?'W':'B',
-           vals[2], is_white[2]?'W':'B',
-           vals[3], is_white[3]?'W':'B',
-           vals[4], is_white[4]?'W':'B',
-           isnan(pos) ? 0.0f : pos);
-  Serial.print(buf); bt_send(buf);
+    count++;
+    char buf[96];
+    snprintf(buf, sizeof(buf), "[%d] %4d%c %4d%c %4d%c %4d%c %4d%c  pos:%.2f\n",
+             count,
+             vals[0], is_white[0]?'W':'B',
+             vals[1], is_white[1]?'W':'B',
+             vals[2], is_white[2]?'W':'B',
+             vals[3], is_white[3]?'W':'B',
+             vals[4], is_white[4]?'W':'B',
+             isnan(pos) ? 0.0f : pos);
+    Serial.print(buf);
+    bt_send(buf);
 
-  delay(200);
+    delay(200);
+  }
 }
