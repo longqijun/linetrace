@@ -1,10 +1,9 @@
 #include "soc/soc.h"
 #include "soc/rtc_cntl_reg.h"
 #include "bt_module.h"
+#include "sensor_module.h"
 
 const int LED_PIN = 2;
-const int PIN_L   = 35;
-const int PIN_R   = 36;
 int count = 0;
 
 void setup() {
@@ -12,29 +11,36 @@ void setup() {
 
   pinMode(LED_PIN, OUTPUT);
   Serial.begin(115200);
-  analogReadResolution(12);
 
+  sensor_begin();
   bt_begin("LineTrace");
-  Serial.println("蓝牙已启动，设备名: LineTrace");
+  Serial.println("传感器模块测试启动");
 }
 
 void loop() {
-  bool connected = bt_connected();
-  int onTime  = connected ? 900 : 100;
-  int offTime = connected ? 100 : 900;
+  digitalWrite(LED_PIN, bt_connected() ? HIGH : LOW);
 
-  digitalWrite(LED_PIN, HIGH);
-  delay(onTime);
-  digitalWrite(LED_PIN, LOW);
-  delay(offTime);
+  int vals[SENSOR_COUNT];
+  bool is_white[SENSOR_COUNT];
+  sensor_read(vals);
+  sensor_binary(is_white);
+  float pos = sensor_position();
 
-  int valL = analogRead(PIN_L);
-  int valR = analogRead(PIN_R);
   count++;
+  char buf[96];
 
-  char buf[64];
-  snprintf(buf, sizeof(buf), "[%d] L:%4d  R:%4d\n", count, valL, valR);
+  // 原始值
+  snprintf(buf, sizeof(buf), "[%d] 原始: %4d %4d %4d %4d %4d",
+           count, vals[0], vals[1], vals[2], vals[3], vals[4]);
+  Serial.print(buf); bt_send(buf);
 
-  Serial.print(buf);
-  bt_send(buf);
+  // 二值（W=白 B=黑）+ 位置
+  snprintf(buf, sizeof(buf), "  |  %c%c%c%c%c  pos:%.2f\n",
+           is_white[0]?'W':'B', is_white[1]?'W':'B',
+           is_white[2]?'W':'B', is_white[3]?'W':'B',
+           is_white[4]?'W':'B',
+           isnan(pos) ? 0.0f : pos);
+  Serial.print(buf); bt_send(buf);
+
+  delay(200);
 }
