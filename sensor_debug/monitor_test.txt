@@ -1,0 +1,405 @@
+// ============================================================
+
+// ESP32 + DRV8833 双电机驱动 完整代码（蓝牙调速 + JSON配置持久化）
+//
+// 功能：
+//   1. 按下BOOT键(GPIO0)后，按 run_direction 方向跑 run_time 秒
+//   2. 蓝牙/USB串口支持以下命令：
+//        speed_forward_l=N    设置前进-左轮速度档位(1~10)
+//        speed_forward_r=N    设置前进-右轮速度档位(1~10)
+//        speed_backward_l=N   设置后退-左轮速度档位(1~10)
+//        speed_backward_r=N   设置后退-右轮速度档位(1~10)
+//        run_time=N           设置运行时间(秒，1~1000，默认2)
+//        run_direction=N      设置方向(0=前进，1=后退，默认0)
+//        N (单独输入1~10)     快捷命令：同时设置四个速度值为N
+//        save                 把当前内存中的所有值写入Flash配置文件
+//   3. 开机自动从 /config.json 加载配置，文件不存在则用默认值
+//   4. 所有日志同时打印到 USB串口 和 蓝牙串口，带输入提示符和回显
+//
+// 依赖库（需要在Arduino库管理器里安装）：
+//   - ArduinoJson (by Benoit Blanchon)
+//   - LittleFS_esp32（部分核心版本已内置 LittleFS.h，无需额外装）
+// ============================================================
+
+#include "BluetoothSerial.h"
+#include "LittleFS.h"
+#include <ArduinoJson.h>
+
+#if !defined(CONFIG_BT_ENABLED) || !defined(CONFIG_BLUEDROID_ENABLED)
+#error 请在 工具->Partition Scheme / 工具->Board 设置中确认已启用蓝牙(Bluetooth)功能
+#endif
+
+BluetoothSerial SerialBT;
+
+// ===== DRV8833 引脚定义 =====
+#define PIN_EEP   17   // 使能/睡眠脚（拉高=工作，拉低=休眠）
+#define PIN_IN1   18   // 右电机 IN1 (OUT1/OUT2)
+#define PIN_IN2   19   // 右电机 IN2
+#define PIN_IN3   21   // 左电机 IN3 (OUT3/OUT4)
+#define PIN_IN4   22   // 左电机 IN4
+
+// ===== LED 引脚 =====
+#define PIN_LED   2
+
+// ===== 按键引脚：使用ESP32开发板自带的BOOT键(GPIO0)，按下=低电平 =====
+#define PIN_BUTTON 0
+
+// ===== 配置文件路径 =====
+#define CONFIG_FILE "/config.json"
+
+// ===== 速度档位表：1~10档，对应PWM占空比 0~255 =====
+int speedTable[11] = {0, 25, 51, 76, 102, 127, 153, 178, 204, 229, 255};
+
+// ===== 四个独立速度档位（内存中的当前值，1~10）=====
+int speedForwardL  = 5;
+int speedForwardR  = 5;
+int speedBackwardL = 5;
+int speedBackwardR = 5;
+
+// ===== 运行参数 =====
+int  runTime      = 2;   // 运行时间（秒），默认2秒，最大1000秒
+int  runDirection = 0;   // 运行方向：0=前进，1=后退
+
+String btBuffer = "";
+String usbBuffer = "";  // USB串口独立缓冲区
+bool btConnected = false;
+
+// ============================================================
+// 工具函数：同时打印到USB串口和蓝牙串口
+// ============================================================
+void dualPrintln(String msg) {
+  Serial.println(msg);
+  if (btConnected) {
+    SerialBT.println(msg);
+  }
+}
+
+void showPrompt() {
+  Serial.print("请输入命令：");
+  if (btConnected) {
+    SerialBT.print("请输入命令：");
+  }
+}
+
+// ============================================================
+// 配置文件：加载
+// ============================================================
+void loadConfig() {
+  if (!LittleFS.exists(CONFIG_FILE)) {
+    dualPrintln("【配置】未找到配置文件，使用默认值（全部5档）");
+    return;
+  }
+
+  File f = LittleFS.open(CONFIG_FILE, "r");
+  if (!f) {
+    dualPrintln("【配置】配置文件打开失败，使用默认值");
+    return;
+  }
+
+  StaticJsonDocument<384> doc;
+  DeserializationError err = deserializeJson(doc, f);
+  f.close();
+
+  if (err) {
+    dualPrintln("【配置】配置文件解析失败，使用默认值");
+    return;
+  }
+
+  // 用 | 默认值 的写法，如果某个字段缺失就用当前默认值兜底
+  speedForwardL  = doc["speed_forward_l"]  | speedForwardL;
+  speedForwardR  = doc["speed_forward_r"]  | speedForwardR;
+  speedBackwardL = doc["speed_backward_l"] | speedBackwardL;
+  speedBackwardR = doc["speed_backward_r"] | speedBackwardR;
+  runTime        = doc["run_time"]         | runTime;
+  runDirection   = doc["run_direction"]    | runDirection;
+
+  dualPrintln("【配置】已从配置文件加载: FL=" + String(speedForwardL) +
+              " FR=" + String(speedForwardR) +
+              " BL=" + String(speedBackwardL) +
+              " BR=" + String(speedBackwardR) +
+              " 时间=" + String(runTime) + "秒" +
+              " 方向=" + (runDirection == 0 ? "前进" : "后退"));
+}
+
+// ============================================================
+// 配置文件：保存
+// ============================================================
+void saveConfig() {
+  StaticJsonDocument<384> doc;
+  doc["speed_forward_l"]  = speedForwardL;
+  doc["speed_forward_r"]  = speedForwardR;
+  doc["speed_backward_l"] = speedBackwardL;
+  doc["speed_backward_r"] = speedBackwardR;
+  doc["run_time"]         = runTime;
+  doc["run_direction"]    = runDirection;
+
+  File f = LittleFS.open(CONFIG_FILE, "w");
+  if (!f) {
+    dualPrintln("【配置】保存失败：无法打开文件写入");
+    return;
+  }
+
+  serializeJson(doc, f);
+  f.close();
+
+  dualPrintln("【配置】已保存到Flash: FL=" + String(speedForwardL) +
+              " FR=" + String(speedForwardR) +
+              " BL=" + String(speedBackwardL) +
+              " BR=" + String(speedBackwardR) +
+              " 时间=" + String(runTime) + "秒" +
+              " 方向=" + (runDirection == 0 ? "前进" : "后退"));
+}
+
+// ============================================================
+// 电机控制
+// ============================================================
+void motorStop() {
+  analogWrite(PIN_IN1, 0);
+  analogWrite(PIN_IN2, 0);
+  analogWrite(PIN_IN3, 0);
+  analogWrite(PIN_IN4, 0);
+}
+
+void motorForward() {
+  int pwmR = speedTable[speedForwardR];
+  int pwmL = speedTable[speedForwardL];
+  dualPrintln("【状态】往前开 左轮速度=" + String(speedForwardL) +
+              " 右轮速度=" + String(speedForwardR));
+  // 右电机正转：IN1给PWM，IN2拉低
+  analogWrite(PIN_IN1, pwmR);
+  analogWrite(PIN_IN2, 0);
+  // 左电机正转：IN3给PWM，IN4拉低
+  analogWrite(PIN_IN3, pwmL);
+  analogWrite(PIN_IN4, 0);
+}
+
+void motorBackward() {
+  int pwmR = speedTable[speedBackwardR];
+  int pwmL = speedTable[speedBackwardL];
+  dualPrintln("【状态】往后开 左轮速度=" + String(speedBackwardL) +
+              " 右轮速度=" + String(speedBackwardR));
+  // 右电机反转：IN1拉低，IN2给PWM
+  analogWrite(PIN_IN1, 0);
+  analogWrite(PIN_IN2, pwmR);
+  // 左电机反转：IN3拉低，IN4给PWM
+  analogWrite(PIN_IN3, 0);
+  analogWrite(PIN_IN4, pwmL);
+}
+
+void runSequence() {
+  unsigned long runMs = (unsigned long)runTime * 1000UL;
+  String dirStr = (runDirection == 0) ? "前进" : "后退";
+  dualPrintln("【运行】方向=" + dirStr + " 时间=" + String(runTime) + "秒");
+
+  if (runDirection == 0) {
+    // ===== 前进：LED常亮 =====
+    digitalWrite(PIN_LED, HIGH);
+    motorForward();
+    delay(runMs);
+    digitalWrite(PIN_LED, LOW);
+  } else {
+    // ===== 后退：LED闪烁 =====
+    motorBackward();
+    unsigned long startTime = millis();
+    bool ledState = false;
+    while (millis() - startTime < runMs) {
+      ledState = !ledState;
+      digitalWrite(PIN_LED, ledState);
+      delay(250);
+    }
+    digitalWrite(PIN_LED, LOW);
+  }
+
+  motorStop();
+  dualPrintln("【状态】一轮结束，等待下一次按键");
+}
+
+// ============================================================
+// 命令解析
+// ============================================================
+
+// 检查档位是否合法(1~10)，合法返回true
+bool isValidLevel(int level) {
+  return (level >= 1 && level <= 10);
+}
+
+// 处理 "字段名=数值" 这种命令，成功返回true
+bool tryParseAssignment(String cmd) {
+  int eqIndex = cmd.indexOf('=');
+  if (eqIndex < 0) return false; // 没有等号，不是赋值命令
+
+  String key = cmd.substring(0, eqIndex);
+  String valStr = cmd.substring(eqIndex + 1);
+  key.trim();
+  valStr.trim();
+
+  int level = valStr.toInt();
+  if (!isValidLevel(level)) {
+    dualPrintln("【错误】数值必须在1~10之间: " + cmd);
+    return true; // 命令格式认出来了，只是值不合法，仍然算"处理过"
+  }
+
+  if (key == "speed_forward_l") {
+    speedForwardL = level;
+  } else if (key == "speed_forward_r") {
+    speedForwardR = level;
+  } else if (key == "speed_backward_l") {
+    speedBackwardL = level;
+  } else if (key == "speed_backward_r") {
+    speedBackwardR = level;
+  } else if (key == "run_time") {
+    int t = valStr.toInt();
+    if (t < 1 || t > 1000) {
+      dualPrintln("【错误】run_time 必须在1~1000秒之间: " + valStr);
+      return true;
+    }
+    runTime = t;
+    dualPrintln("【设置】run_time = " + String(runTime) + "秒（仅内存生效，输入 save 才会保存到Flash）");
+    return true;
+  } else if (key == "run_direction") {
+    int d = valStr.toInt();
+    if (d != 0 && d != 1) {
+      dualPrintln("【错误】run_direction 只能是 0(前进) 或 1(后退): " + valStr);
+      return true;
+    }
+    runDirection = d;
+    dualPrintln("【设置】run_direction = " + String(runDirection) +
+                "（" + (runDirection == 0 ? "前进" : "后退") +
+                "）（仅内存生效，输入 save 才会保存到Flash）");
+    return true;
+  } else {
+    dualPrintln("【错误】未知字段名: " + key);
+    return true;
+  }
+
+  dualPrintln("【设置】" + key + " = " + String(level) +
+              "（仅内存生效，输入 save 才会保存到Flash）");
+  return true;
+}
+
+void handleBTCommand(String cmd) {
+  cmd.trim();
+  if (cmd.length() == 0) {
+    showPrompt();
+    return;
+  }
+
+  if (cmd == "save") {
+    saveConfig();
+  } else if (tryParseAssignment(cmd)) {
+    // 已在 tryParseAssignment 内部处理并打印结果
+  } else {
+    // 不含等号，尝试当作"快捷命令"：纯数字1~10，同时设置四个值
+    int level = cmd.toInt();
+    if (isValidLevel(level) && cmd.toInt() != 0) {
+      speedForwardL = speedBackwardL = speedForwardR = speedBackwardR = level;
+      dualPrintln("【设置】快捷命令：四个速度值已全部设为 " + String(level) +
+                  "（仅内存生效，输入 save 才会保存到Flash）");
+    } else {
+      dualPrintln("【错误】无法识别的命令: " + cmd);
+    }
+  }
+
+  showPrompt();
+}
+
+// ============================================================
+// 蓝牙连接状态回调
+// ============================================================
+void btCallback(esp_spp_cb_event_t event, esp_spp_cb_param_t *param) {
+  if (event == ESP_SPP_SRV_OPEN_EVT) {
+    btConnected = true;
+    Serial.println("【蓝牙】设备已连接！");
+    SerialBT.println("已连接。可用命令：");
+    SerialBT.println("  speed_forward_l=N / speed_forward_r=N");
+    SerialBT.println("  speed_backward_l=N / speed_backward_r=N");
+    SerialBT.println("  run_time=N (1~1000秒，默认2)");
+    SerialBT.println("  run_direction=N (0=前进，1=后退)");
+    SerialBT.println("  N (1~10，快捷设置全部四个速度值)");
+    SerialBT.println("  save (保存当前配置到Flash)");
+    SerialBT.print("请输入命令："); // 只给BT端显示提示符，USB端已经有自己的提示符
+  }
+  if (event == ESP_SPP_CLOSE_EVT) {
+    btConnected = false;
+    Serial.println("【蓝牙】设备已断开连接");
+  }
+}
+
+// ============================================================
+// setup / loop
+// ============================================================
+void setup() {
+  Serial.begin(115200);
+  delay(500);
+
+  pinMode(PIN_EEP, OUTPUT);
+  pinMode(PIN_LED, OUTPUT);
+  pinMode(PIN_BUTTON, INPUT_PULLUP);
+
+  motorStop();
+  digitalWrite(PIN_LED, LOW);
+
+  digitalWrite(PIN_EEP, HIGH);
+  delay(10);
+
+  // 初始化文件系统，第一次使用需要格式化(true=格式化失败时自动格式化)
+  if (!LittleFS.begin(true)) {
+    Serial.println("【配置】LittleFS挂载失败！配置功能不可用");
+  } else {
+    loadConfig();
+  }
+
+  SerialBT.begin("ESP32_LineTrace");
+  SerialBT.register_callback(btCallback);
+  Serial.println("【蓝牙已开启】设备名: ESP32_LineTrace，等待连接...");
+
+  Serial.println("【初始化完成】按下BOOT键开始，或通过蓝牙/USB串口发送命令设置速度");
+  Serial.println("可用命令：speed_forward_l=N / speed_forward_r=N / speed_backward_l=N / speed_backward_r=N");
+  Serial.println("         run_time=N(1~1000秒) / run_direction=N(0前进/1后退) / N(1~10快捷速度) / save");
+  showPrompt();
+}
+
+void loop() {
+  // ===== 1. 检测蓝牙是否有数据传入 =====
+  while (SerialBT.available()) {
+    char c = SerialBT.read();
+    SerialBT.write(c); // 原样回显，让你能看到自己刚打的字符
+    if (c == '\n' || c == '\r') {
+      if (btBuffer.length() > 0) {
+        handleBTCommand(btBuffer);
+        btBuffer = "";
+      }
+    } else {
+      btBuffer += c;
+    }
+  }
+
+  // ===== 2. 检测USB串口是否有数据传入（和蓝牙完全相同的逻辑）=====
+  while (Serial.available()) {
+    char c = Serial.read();
+    Serial.write(c); // USB串口也回显
+    if (c == '\n' || c == '\r') {
+      if (usbBuffer.length() > 0) {
+        handleBTCommand(usbBuffer); // 复用同一个命令处理函数
+        usbBuffer = "";
+      }
+    } else {
+      usbBuffer += c;
+    }
+  }
+
+  // ===== 3. 检测按键是否按下（低电平触发）=====
+  if (digitalRead(PIN_BUTTON) == LOW) {
+    delay(50);
+    if (digitalRead(PIN_BUTTON) == LOW) {
+      dualPrintln("【按键触发】开始运行");
+      runSequence();
+
+      while (digitalRead(PIN_BUTTON) == LOW) {
+        delay(10);
+      }
+
+      showPrompt();
+    }
+  }
+}

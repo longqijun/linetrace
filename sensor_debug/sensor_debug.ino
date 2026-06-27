@@ -1,7 +1,9 @@
 #include "soc/soc.h"
 #include "soc/rtc_cntl_reg.h"
 #include "bt_module.h"
+#include "print_module.h"
 #include "sensor_module.h"
+#include "motor_module.h"
 #include "cmd_module.h"
 
 const int LED_PIN = 2;
@@ -13,26 +15,26 @@ void setup() {
   pinMode(LED_PIN, OUTPUT);
   Serial.begin(115200);
 
+  print_begin();    // USB和BT打印默认关闭
   sensor_begin();
+  motor_begin();
   bt_begin("LineTrace");
   cmd_begin();
 
-  // 启动时打印一次阈值
-  char thr[64];
-  snprintf(thr, sizeof(thr), "阈值: %4d %4d %4d %4d %4d\n",
-           sensor_get_threshold(0), sensor_get_threshold(1),
-           sensor_get_threshold(2), sensor_get_threshold(3),
-           sensor_get_threshold(4));
-  Serial.print(thr);
-  bt_send(thr);
+  // 阈值提示走 reply 路径（始终可见）
+  Serial.println("启动完成，输入 help 查看命令");
+  Serial.println("输入 print on 开启传感器数据流");
 }
 
 void loop() {
   digitalWrite(LED_PIN, bt_connected() ? HIGH : LOW);
 
-  cmd_poll();  // 处理BT命令输入
+  cmd_poll();
 
-  if (cmd_print_enabled()) {
+  static unsigned long last_print = 0;
+  if (millis() - last_print >= 200) {
+    last_print = millis();
+
     int vals[SENSOR_COUNT];
     bool is_white[SENSOR_COUNT];
     sensor_read(vals);
@@ -49,9 +51,6 @@ void loop() {
              vals[3], is_white[3]?'W':'B',
              vals[4], is_white[4]?'W':'B',
              isnan(pos) ? 0.0f : pos);
-    Serial.print(buf);
-    bt_send(buf);
-
-    delay(200);
+    out(buf);  // 受 print_module 控制，默认不输出
   }
 }
