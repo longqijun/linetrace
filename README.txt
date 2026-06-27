@@ -1,50 +1,133 @@
 ============================
-巡线小车项目 - 硬件信息
+巡线小车项目 - 说明文档
 ============================
 
-【主控】
-  ESP32（Arduino IDE 开发）
-
-【传感器】
-  AE-NJL5901AR-8CH（8路红外反射传感器）
+【硬件平台】
+  主控：ESP32（Arduino IDE 开发）
+  传感器：AE-NJL5901AR-8CH（8路红外反射传感器）
+  电机驱动：DRV8833
   传感器间距：16mm
   比赛线宽：19mm（白线）
 
-【传感器引脚映射】（PCB固定，不可修改）
-  CH1 → D32  (ADC1) ✓ 蓝牙可用
-  CH2 → D33  (ADC1) ✓ 蓝牙可用
-  CH3 → D34  (ADC1) ✓ 蓝牙可用
-  CH4 → D35  (ADC1) ✓ 蓝牙可用
-  CH5 → VP   (GPIO36, ADC1) ✓ 蓝牙可用
-  CH6 → VN   (GPIO39, ADC1) ✓ 蓝牙可用
-  CH7 → D13  (ADC2) ✗ 蓝牙启用时不可用
-  CH8 → D14  (ADC2) ✗ 蓝牙启用时不可用
+------------------------------------------------------------
+【引脚定义】（PCB固定，不可修改）
+------------------------------------------------------------
 
-【传感器使用策略】
-  - 开蓝牙时最多用 CH1~CH6（6路，全ADC1）
-  - 推荐取中间5路：CH2~CH6（D33/D34/D35/VP/VN），跨度64mm，左右对称
-  - 最少需要3路传感器才能判断方向（3路只能bang-bang控制）
-  - 5路可做加权位置计算，支持PID平滑控制
+传感器（AE-NJL5901AR-8CH）：
+  CH1 → D32  (ADC1) 蓝牙可用
+  CH2 → D33  (ADC1) 蓝牙可用  ← 使用
+  CH3 → D34  (ADC1) 蓝牙可用  ← 使用
+  CH4 → D35  (ADC1) 蓝牙可用  ← 使用
+  CH5 → VP   (GPIO36, ADC1)   ← 使用
+  CH6 → VN   (GPIO39, ADC1)   ← 使用
+  CH7 → D13  (ADC2) 蓝牙启用时不可用
+  CH8 → D14  (ADC2) 蓝牙启用时不可用
+  注：CH7/CH8为ADC2，蓝牙开启时读值出错，禁用
 
+电机驱动（DRV8833）：
+  GPIO17 → EEP  使能（HIGH=工作，LOW=睡眠）
+  GPIO18 → IN1  右电机
+  GPIO19 → IN2  右电机
+  GPIO21 → IN3  左电机
+  GPIO22 → IN4  左电机
+
+其他：
+  GPIO2  → 板载LED
+  GPIO0  → Boot按钮
+
+------------------------------------------------------------
+【传感器说明】
+------------------------------------------------------------
+  - 使用中间5路：CH2~CH6，跨度 4×16 = 64mm，左右对称
+  - 输出特性：白色=低值，黑色=高值（NPN光电晶体管active-low）
+  - 实测阈值（各路独立，CH6偏弱单独标定）：
+      CH2(D33):  白~590   黑~2500  阈值1545
+      CH3(D34):  白~660   黑~2500  阈值1580
+      CH4(D35):  白~545   黑~2300  阈值1422
+      CH5(VP36): 白~600   黑~2200  阈值1400
+      CH6(VN39): 白~530   黑~1700  阈值1115
+  - 加权位置：-1.0（最左）~ 0.0（居中）~ +1.0（最右），NAN=丢线
+
+------------------------------------------------------------
 【电源】
+------------------------------------------------------------
   双18650方案：
-  - 电池1：供 ESP32 + 传感器
-  - 电池2：供 电机
-  注意：上电瞬间电压抖动，需关闭ESP32欠压检测器
-  代码：WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);
+    电池1 → 升压5V → ESP32 + 传感器
+    电池2 → DRV8833 → 电机
+  注意：上电瞬间电压抖动，代码中关闭欠压检测器：
+    WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);
 
-【蓝牙】
-  协议：BT SPP（BluetoothSerial）
-  设备名：LineTrace
-  已封装为独立模块 bt_module.h / bt_module.cpp
-  接口：bt_begin(name) / bt_connected() / bt_send(msg)
-  LED指示：快闪=未连接，慢闪=已连接
+------------------------------------------------------------
+【代码模块结构】
+------------------------------------------------------------
 
-【其他引脚】
-  LED：GPIO2（板载）
-
-【代码结构】
   sensor_debug/
-  ├── sensor_debug.ino   主程序
-  ├── bt_module.h        蓝牙模块接口
-  └── bt_module.cpp      蓝牙模块实现
+  ├── sensor_debug.ino     主程序入口
+  ├── bt_module.h/cpp      蓝牙模块
+  ├── print_module.h/cpp   输出控制模块
+  ├── sensor_module.h/cpp  传感器模块
+  ├── motor_module.h/cpp   电机模块
+  └── cmd_module.h/cpp     命令行模块
+
+------------------------------------------------------------
+【模块接口说明】
+------------------------------------------------------------
+
+[bt_module] 蓝牙SPP通信
+  bt_begin("DeviceName")     初始化，设置蓝牙设备名
+  bt_connected()             返回bool，是否已连接
+  bt_send(msg)               发送字符串到BT
+  bt_poll_line(buf, maxlen)  带回显的行读取，收到完整行返回true
+
+[print_module] 集中输出控制（默认USB和BT均关闭）
+  print_begin()              初始化，USB=OFF, BT=OFF
+  print_set_usb(bool)        开关USB数据流
+  print_set_bt(bool)         开关BT数据流
+  out(msg)                   向所有已开启通道输出
+  out_usb(msg)               仅USB输出
+  out_bt(msg)                仅BT输出
+
+[sensor_module] 5路传感器
+  sensor_begin()             初始化ADC
+  sensor_read(values[5])     读取原始ADC值
+  sensor_binary(is_white[5]) 二值判断，true=白线
+  sensor_position()          加权位置 -1.0~+1.0，NAN=丢线
+  sensor_get_threshold(i)    获取第i路阈值
+
+[motor_module] DRV8833电机驱动
+  motor_begin()              初始化引脚，使能DRV8833
+  motor_stop()               滑行停止（coast）
+  motor_brake()              制动停止
+  motor_set(pwm_l, pwm_r)   设置左右PWM，-255~255，负值=反转
+  motor_level_to_pwm(level)  1~10档转换为PWM值（0~255）
+
+[cmd_module] 命令行（USB串口和BT均可输入，有回显）
+  cmd_begin()                初始化
+  cmd_poll()                 每次loop调用，处理输入
+  注：命令响应始终可见，不受print_module控制
+
+------------------------------------------------------------
+【BT命令列表】
+------------------------------------------------------------
+
+  print on/off          USB+BT 数据流同时开关
+  print usb on/off      仅控制USB数据流
+  print bt  on/off      仅控制BT数据流
+  go N                  前进N秒（1~60），使用当前速度
+  back N                后退N秒（1~60），使用当前速度
+  stop                  立即停止电机
+  speed N               设置速度档位（1~10，默认5）
+  help                  显示命令帮助
+
+------------------------------------------------------------
+【待完成】
+------------------------------------------------------------
+  - config_module：LittleFS + JSON 配置文件，保存阈值和速度参数
+  - PID控制模块
+  - 巡线主逻辑
+
+------------------------------------------------------------
+【依赖库】（Arduino Library Manager安装）
+------------------------------------------------------------
+  - ArduinoJson（Benoit Blanchon，v6）  ← 待config_module使用
+  LittleFS 和 BluetoothSerial 为ESP32核心自带，无需安装
