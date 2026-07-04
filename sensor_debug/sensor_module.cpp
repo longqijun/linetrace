@@ -2,9 +2,9 @@
 #include <Arduino.h>
 #include <math.h>
 
-static const int PINS[SENSOR_COUNT]      = {33, 34, 35, 36, 39};
-// 各路独立阈值（黑白中点）：CH6偏弱单独设低
-static const int THRESHOLD[SENSOR_COUNT] = {1545, 1580, 1422, 1400, 1115};
+static const int PINS[SENSOR_COUNT] = {33, 34, 35, 36, 39};
+// 各路独立阈值（黑白中点）：CH6偏弱单独设低，代码内默认值；可被config_module加载的/config.json覆盖
+static int THRESHOLD[SENSOR_COUNT] = {1545, 1580, 1422, 1400, 1115};
 
 void sensor_begin() {
   analogReadResolution(12);
@@ -26,6 +26,11 @@ void sensor_binary(bool is_white[SENSOR_COUNT]) {
 
 int sensor_get_threshold(int index) {
   return THRESHOLD[index];
+}
+
+void sensor_set_threshold(int index, int value) {
+  if (index < 0 || index >= SENSOR_COUNT) return;
+  THRESHOLD[index] = value;
 }
 
 // 加权位置：传感器索引0~4，中心为2，归一化到-1~+1

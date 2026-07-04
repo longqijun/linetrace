@@ -4,9 +4,11 @@
 #include "print_module.h"
 #include "config_module.h"
 #include "track_module.h"
+#include "sensor_module.h"
 #include <Arduino.h>
 #include <string.h>
 #include <stdlib.h>
+#include <stdio.h>
 
 // 命令响应：始终输出，不受 print_module 控制
 static void reply(const char* msg) {
@@ -76,6 +78,23 @@ static void handle_command(const char* cmd) {
     snprintf(buf, sizeof(buf), ">>> Config saved (speed=%d)\r\n", config_get_speed());
     reply(buf);
 
+  // --- config (print current config as JSON) ---
+  } else if (strcmp(cmd, "config") == 0) {
+    config_print();
+
+  // --- threshold CH VALUE ---
+  } else if (strncmp(cmd, "threshold ", 10) == 0) {
+    int ch, value;
+    if (sscanf(cmd + 10, "%d %d", &ch, &value) != 2 || ch < 2 || ch > 6) {
+      reply(">>> Usage: threshold CH VALUE (CH=2~6)\r\n");
+    } else {
+      sensor_set_threshold(ch - 2, value);
+      char buf[64];
+      snprintf(buf, sizeof(buf), ">>> CH%d threshold set to %d (memory only, use save to persist)\r\n",
+               ch, value);
+      reply(buf);
+    }
+
   // --- go N ---
   } else if (strncmp(cmd, "go ", 3) == 0) {
     int sec = atoi(cmd + 3);
@@ -121,7 +140,9 @@ static void handle_command(const char* cmd) {
     reply("    stop                 stop motor immediately (also cancels track)\r\n");
     reply("    track on/off         start/stop autonomous line tracking\r\n");
     reply("    speed N              speed level (1~10, default 3, until changed)\r\n");
-    reply("    save                 save current speed to flash (/config.json)\r\n");
+    reply("    save                 save speed+thresholds to flash (/config.json)\r\n");
+    reply("    config               print current config as JSON\r\n");
+    reply("    threshold CH VALUE   set CHx (2~6) threshold, memory only\r\n");
     reply("    help                 show this help\r\n");
 
   } else {

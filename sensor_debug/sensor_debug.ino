@@ -9,24 +9,28 @@
 #include "cmd_module.h"
 
 const int LED_PIN = 2;
+const int BUTTON_PIN = 0;  // Boot按钮，按下=低电平，用作track on/off物理开关
 int count = 0;
+bool last_button_state = HIGH;
 
 void setup() {
   WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);
 
   pinMode(LED_PIN, OUTPUT);
+  pinMode(BUTTON_PIN, INPUT_PULLUP);
   Serial.begin(115200);
 
   print_begin();    // USB和BT打印默认关闭
   sensor_begin();
   motor_begin();
-  config_begin();   // 从/config.json加载速度档位（无文件则用默认值3）
+  config_begin();   // 从/config.json加载速度档位和传感器阈值（无文件/无字段则用默认值）
   track_begin();
   bt_begin("LineTrace");
 
   // 阈值提示走 reply 路径（始终可见）
   Serial.println("Boot complete. Type help for commands");
   Serial.println("Type 'print on' to enable sensor data stream");
+  config_print();
 
   cmd_begin();
 }
@@ -35,6 +39,19 @@ void loop() {
   digitalWrite(LED_PIN, bt_connected() ? HIGH : LOW);
 
   cmd_poll();
+
+  bool button_state = digitalRead(BUTTON_PIN);
+  if (button_state == LOW && last_button_state == HIGH) {
+    delay(30); // 消抖
+    if (digitalRead(BUTTON_PIN) == LOW) {
+      track_set(!track_is_on());
+      const char* msg = track_is_on() ? "Track ON (button)\r\n" : "Track OFF (button)\r\n";
+      Serial.print(msg);
+      bt_send(msg);
+    }
+  }
+  last_button_state = button_state;
+
   track_update();
 
   static unsigned long last_print = 0;

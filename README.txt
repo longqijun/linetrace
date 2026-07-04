@@ -33,14 +33,14 @@
 
 其他：
   GPIO2  → 板载LED
-  GPIO0  → Boot按钮
+  GPIO0  → Boot按钮（按一下切换track on/off，物理开关，见下方巡线说明）
 
 ------------------------------------------------------------
 【传感器说明】
 ------------------------------------------------------------
   - 使用中间5路：CH2~CH6，跨度 4×16 = 64mm，左右对称
   - 输出特性：白色=低值，黑色=高值（NPN光电晶体管active-low）
-  - 实测阈值（各路独立，CH6偏弱单独标定）：
+  - 实测阈值（各路独立，CH6偏弱单独标定，代码内默认值，可被/config.json覆盖）：
       CH2(D33):  白~590   黑~2500  阈值1545
       CH3(D34):  白~660   黑~2500  阈值1580
       CH4(D35):  白~545   黑~2300  阈值1422
@@ -95,6 +95,7 @@
   sensor_binary(is_white[5]) 二值判断，true=白线
   sensor_position()          加权位置 -1.0~+1.0，NAN=丢线
   sensor_get_threshold(i)    获取第i路阈值
+  sensor_set_threshold(i,v)  覆盖第i路阈值（仅内存，供config_module加载配置用）
 
 [motor_module] DRV8833电机驱动
   motor_begin()              初始化引脚，使能DRV8833
@@ -103,11 +104,14 @@
   motor_set(pwm_l, pwm_r)   设置左右PWM，-255~255，负值=反转
   motor_level_to_pwm(level)  1~10档转换为PWM值（0~255）
 
-[config_module] 配置持久化（LittleFS + JSON，目前仅速度档位）
-  config_begin()             挂载LittleFS，从/config.json加载配置（无文件/无字段则用默认值3）
+[config_module] 配置持久化（LittleFS + JSON，速度档位+5路传感器阈值）
+  config_begin()             挂载LittleFS，从/config.json加载配置（无文件/无字段则用默认值）
   config_get_speed()         获取当前速度档位(1~10)
   config_set_speed(level)    设置当前速度档位（仅内存生效）
-  config_save()              把当前内存配置写入/config.json
+  config_save()              把当前速度档位+5路阈值写入/config.json
+  config_print()             打印当前配置的JSON内容（Serial+BT）
+  注：阈值默认值在sensor_module内置，json有threshold字段时才覆盖；
+      save时阈值取sensor_module当前值；可用BT命令 threshold CH VALUE 现场调整（仅内存，需save持久化）
 
 [track_module] 自动巡线（CH4主力压线，CH3/CH5辅助纠偏，差速转向不停顿，CH2/CH6暂不使用）
   track_begin()              初始化，默认关闭
@@ -115,6 +119,7 @@
   track_is_on()              返回bool，是否巡线中
   track_update()             每次loop调用，仅开启时生效，非阻塞
   注：CH3/CH5都触发（宽线）或都不触发（丢线）时暂按直行处理，未做丢线找回
+  注：也可按Boot按钮（GPIO0）切换track on/off，不需要BT/USB命令
 
 [cmd_module] 命令行（USB串口和BT均可输入，有回显）
   cmd_begin()                初始化
@@ -133,10 +138,12 @@
   stop                  立即停止电机（同时会退出巡线模式）
   track on/off          开启/关闭自动巡线
   speed N               设置速度档位（1~10），仅内存生效，需save才写入Flash
-  save                  把当前速度档位保存到/config.json
+  save                  把当前速度档位+5路阈值保存到/config.json
+  config                打印当前配置的JSON内容
+  threshold CH VALUE    设置CHx(2~6)的阈值，仅内存生效，需save才写入Flash
   help                  显示命令帮助
 
-  注：开机自动从/config.json加载速度档位；文件不存在或无该字段时默认3。
+  注：开机自动从/config.json加载速度档位和阈值；文件不存在或无该字段时用默认值（速度3）。
 
 ------------------------------------------------------------
 【待完成】
