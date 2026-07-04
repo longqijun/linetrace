@@ -2,11 +2,11 @@
 #include "bt_module.h"
 #include "motor_module.h"
 #include "print_module.h"
+#include "config_module.h"
+#include "track_module.h"
 #include <Arduino.h>
 #include <string.h>
 #include <stdlib.h>
-
-static int _speed_level = 5;
 
 // 命令响应：始终输出，不受 print_module 控制
 static void reply(const char* msg) {
@@ -44,8 +44,17 @@ static void handle_command(const char* cmd) {
 
   // --- stop ---
   } else if (strcmp(cmd, "stop") == 0) {
+    track_set(false);
     motor_stop();
     reply(">>> Motor stopped\r\n");
+
+  // --- track on/off ---
+  } else if (strcmp(cmd, "track on") == 0) {
+    track_set(true);
+    reply(">>> Line tracking ON\r\n");
+  } else if (strcmp(cmd, "track off") == 0) {
+    track_set(false);
+    reply(">>> Line tracking OFF\r\n");
 
   // --- speed N ---
   } else if (strncmp(cmd, "speed ", 6) == 0) {
@@ -53,12 +62,19 @@ static void handle_command(const char* cmd) {
     if (level < 1 || level > 10) {
       reply(">>> Speed range 1~10\r\n");
     } else {
-      _speed_level = level;
+      config_set_speed(level);
       char buf[48];
       snprintf(buf, sizeof(buf), ">>> Speed set to %d (PWM %d)\r\n",
-               _speed_level, motor_level_to_pwm(_speed_level));
+               level, motor_level_to_pwm(level));
       reply(buf);
     }
+
+  // --- save ---
+  } else if (strcmp(cmd, "save") == 0) {
+    config_save();
+    char buf[48];
+    snprintf(buf, sizeof(buf), ">>> Config saved (speed=%d)\r\n", config_get_speed());
+    reply(buf);
 
   // --- go N ---
   } else if (strncmp(cmd, "go ", 3) == 0) {
@@ -66,10 +82,10 @@ static void handle_command(const char* cmd) {
     if (sec <= 0 || sec > 60) {
       reply(">>> Time range 1~60 sec\r\n");
     } else {
-      int pwm = motor_level_to_pwm(_speed_level);
+      int pwm = motor_level_to_pwm(config_get_speed());
       char buf[64];
       snprintf(buf, sizeof(buf), ">>> Forward %d sec, speed %d (PWM %d)\r\n",
-               sec, _speed_level, pwm);
+               sec, config_get_speed(), pwm);
       reply(buf);
       motor_set(pwm, pwm);
       delay((unsigned long)sec * 1000);
@@ -83,10 +99,10 @@ static void handle_command(const char* cmd) {
     if (sec <= 0 || sec > 60) {
       reply(">>> Time range 1~60 sec\r\n");
     } else {
-      int pwm = motor_level_to_pwm(_speed_level);
+      int pwm = motor_level_to_pwm(config_get_speed());
       char buf[64];
       snprintf(buf, sizeof(buf), ">>> Backward %d sec, speed %d (PWM %d)\r\n",
-               sec, _speed_level, pwm);
+               sec, config_get_speed(), pwm);
       reply(buf);
       motor_set(-pwm, -pwm);
       delay((unsigned long)sec * 1000);
@@ -102,8 +118,10 @@ static void handle_command(const char* cmd) {
     reply("    print bt  on/off     BT  data stream only\r\n");
     reply("    go N                 forward N sec (1~60)\r\n");
     reply("    back N               backward N sec (1~60)\r\n");
-    reply("    stop                 stop motor immediately\r\n");
-    reply("    speed N              speed level (1~10, default 5)\r\n");
+    reply("    stop                 stop motor immediately (also cancels track)\r\n");
+    reply("    track on/off         start/stop autonomous line tracking\r\n");
+    reply("    speed N              speed level (1~10, default 3, until changed)\r\n");
+    reply("    save                 save current speed to flash (/config.json)\r\n");
     reply("    help                 show this help\r\n");
 
   } else {
@@ -140,7 +158,6 @@ static bool serial_poll_line(char* buf, int maxlen) {
 }
 
 void cmd_begin() {
-  _speed_level = 5;
   show_prompt();
 }
 

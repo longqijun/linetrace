@@ -4,6 +4,8 @@
 #include "print_module.h"
 #include "sensor_module.h"
 #include "motor_module.h"
+#include "config_module.h"
+#include "track_module.h"
 #include "cmd_module.h"
 
 const int LED_PIN = 2;
@@ -18,6 +20,8 @@ void setup() {
   print_begin();    // USB和BT打印默认关闭
   sensor_begin();
   motor_begin();
+  config_begin();   // 从/config.json加载速度档位（无文件则用默认值3）
+  track_begin();
   bt_begin("LineTrace");
 
   // 阈值提示走 reply 路径（始终可见）
@@ -31,6 +35,7 @@ void loop() {
   digitalWrite(LED_PIN, bt_connected() ? HIGH : LOW);
 
   cmd_poll();
+  track_update();
 
   static unsigned long last_print = 0;
   if (millis() - last_print >= 200) {

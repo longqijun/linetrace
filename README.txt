@@ -67,6 +67,8 @@
   ├── print_module.h/cpp   输出控制模块
   ├── sensor_module.h/cpp  传感器模块
   ├── motor_module.h/cpp   电机模块
+  ├── config_module.h/cpp  配置持久化模块（LittleFS+JSON）
+  ├── track_module.h/cpp   自动巡线模块（差速转向）
   └── cmd_module.h/cpp     命令行模块
 
 ------------------------------------------------------------
@@ -101,6 +103,19 @@
   motor_set(pwm_l, pwm_r)   设置左右PWM，-255~255，负值=反转
   motor_level_to_pwm(level)  1~10档转换为PWM值（0~255）
 
+[config_module] 配置持久化（LittleFS + JSON，目前仅速度档位）
+  config_begin()             挂载LittleFS，从/config.json加载配置（无文件/无字段则用默认值3）
+  config_get_speed()         获取当前速度档位(1~10)
+  config_set_speed(level)    设置当前速度档位（仅内存生效）
+  config_save()              把当前内存配置写入/config.json
+
+[track_module] 自动巡线（CH4主力压线，CH3/CH5辅助纠偏，差速转向不停顿，CH2/CH6暂不使用）
+  track_begin()              初始化，默认关闭
+  track_set(bool)            开启/关闭巡线（关闭时会停止电机）
+  track_is_on()              返回bool，是否巡线中
+  track_update()             每次loop调用，仅开启时生效，非阻塞
+  注：CH3/CH5都触发（宽线）或都不触发（丢线）时暂按直行处理，未做丢线找回
+
 [cmd_module] 命令行（USB串口和BT均可输入，有回显）
   cmd_begin()                初始化
   cmd_poll()                 每次loop调用，处理输入
@@ -115,19 +130,22 @@
   print bt  on/off      仅控制BT数据流
   go N                  前进N秒（1~60），使用当前速度
   back N                后退N秒（1~60），使用当前速度
-  stop                  立即停止电机
-  speed N               设置速度档位（1~10，默认5）
+  stop                  立即停止电机（同时会退出巡线模式）
+  track on/off          开启/关闭自动巡线
+  speed N               设置速度档位（1~10），仅内存生效，需save才写入Flash
+  save                  把当前速度档位保存到/config.json
   help                  显示命令帮助
+
+  注：开机自动从/config.json加载速度档位；文件不存在或无该字段时默认3。
 
 ------------------------------------------------------------
 【待完成】
 ------------------------------------------------------------
-  - config_module：LittleFS + JSON 配置文件，保存阈值和速度参数
-  - PID控制模块
-  - 巡线主逻辑
+  - 丢线找回逻辑（目前CH2/CH6未使用，丢线时暂按直行处理）
+  - PID平滑控制（目前track_module是bang-bang差速转向，非PID）
 
 ------------------------------------------------------------
 【依赖库】（Arduino Library Manager安装）
 ------------------------------------------------------------
-  - ArduinoJson（Benoit Blanchon，v6）  ← 待config_module使用
+  - ArduinoJson（Benoit Blanchon，v6）  ← config_module使用
   LittleFS 和 BluetoothSerial 为ESP32核心自带，无需安装
