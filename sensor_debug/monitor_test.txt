@@ -26,7 +26,7 @@
 #include <ArduinoJson.h>
 
 #if !defined(CONFIG_BT_ENABLED) || !defined(CONFIG_BLUEDROID_ENABLED)
-#error 请在 工具->Partition Scheme / 工具->Board 设置中确认已启用蓝牙(Bluetooth)功能
+#error Please enable Bluetooth in Tools->Partition Scheme / Tools->Board settings
 #endif
 
 BluetoothSerial SerialBT;
@@ -75,9 +75,9 @@ void dualPrintln(String msg) {
 }
 
 void showPrompt() {
-  Serial.print("请输入命令：");
+  Serial.print("Enter command: ");
   if (btConnected) {
-    SerialBT.print("请输入命令：");
+    SerialBT.print("Enter command: ");
   }
 }
 
@@ -86,13 +86,13 @@ void showPrompt() {
 // ============================================================
 void loadConfig() {
   if (!LittleFS.exists(CONFIG_FILE)) {
-    dualPrintln("【配置】未找到配置文件，使用默认值（全部5档）");
+    dualPrintln("[Config] Config file not found, using defaults (all level 5)");
     return;
   }
 
   File f = LittleFS.open(CONFIG_FILE, "r");
   if (!f) {
-    dualPrintln("【配置】配置文件打开失败，使用默认值");
+    dualPrintln("[Config] Failed to open config file, using defaults");
     return;
   }
 
@@ -101,7 +101,7 @@ void loadConfig() {
   f.close();
 
   if (err) {
-    dualPrintln("【配置】配置文件解析失败，使用默认值");
+    dualPrintln("[Config] Failed to parse config file, using defaults");
     return;
   }
 
@@ -113,12 +113,12 @@ void loadConfig() {
   runTime        = doc["run_time"]         | runTime;
   runDirection   = doc["run_direction"]    | runDirection;
 
-  dualPrintln("【配置】已从配置文件加载: FL=" + String(speedForwardL) +
+  dualPrintln("[Config] Loaded from file: FL=" + String(speedForwardL) +
               " FR=" + String(speedForwardR) +
               " BL=" + String(speedBackwardL) +
               " BR=" + String(speedBackwardR) +
-              " 时间=" + String(runTime) + "秒" +
-              " 方向=" + (runDirection == 0 ? "前进" : "后退"));
+              " time=" + String(runTime) + "s" +
+              " dir=" + (runDirection == 0 ? "forward" : "backward"));
 }
 
 // ============================================================
@@ -135,19 +135,19 @@ void saveConfig() {
 
   File f = LittleFS.open(CONFIG_FILE, "w");
   if (!f) {
-    dualPrintln("【配置】保存失败：无法打开文件写入");
+    dualPrintln("[Config] Save failed: unable to open file for writing");
     return;
   }
 
   serializeJson(doc, f);
   f.close();
 
-  dualPrintln("【配置】已保存到Flash: FL=" + String(speedForwardL) +
+  dualPrintln("[Config] Saved to flash: FL=" + String(speedForwardL) +
               " FR=" + String(speedForwardR) +
               " BL=" + String(speedBackwardL) +
               " BR=" + String(speedBackwardR) +
-              " 时间=" + String(runTime) + "秒" +
-              " 方向=" + (runDirection == 0 ? "前进" : "后退"));
+              " time=" + String(runTime) + "s" +
+              " dir=" + (runDirection == 0 ? "forward" : "backward"));
 }
 
 // ============================================================
@@ -163,8 +163,8 @@ void motorStop() {
 void motorForward() {
   int pwmR = speedTable[speedForwardR];
   int pwmL = speedTable[speedForwardL];
-  dualPrintln("【状态】往前开 左轮速度=" + String(speedForwardL) +
-              " 右轮速度=" + String(speedForwardR));
+  dualPrintln("[Status] Moving forward, L speed=" + String(speedForwardL) +
+              " R speed=" + String(speedForwardR));
   // 右电机正转：IN1给PWM，IN2拉低
   analogWrite(PIN_IN1, pwmR);
   analogWrite(PIN_IN2, 0);
@@ -176,8 +176,8 @@ void motorForward() {
 void motorBackward() {
   int pwmR = speedTable[speedBackwardR];
   int pwmL = speedTable[speedBackwardL];
-  dualPrintln("【状态】往后开 左轮速度=" + String(speedBackwardL) +
-              " 右轮速度=" + String(speedBackwardR));
+  dualPrintln("[Status] Moving backward, L speed=" + String(speedBackwardL) +
+              " R speed=" + String(speedBackwardR));
   // 右电机反转：IN1拉低，IN2给PWM
   analogWrite(PIN_IN1, 0);
   analogWrite(PIN_IN2, pwmR);
@@ -188,8 +188,8 @@ void motorBackward() {
 
 void runSequence() {
   unsigned long runMs = (unsigned long)runTime * 1000UL;
-  String dirStr = (runDirection == 0) ? "前进" : "后退";
-  dualPrintln("【运行】方向=" + dirStr + " 时间=" + String(runTime) + "秒");
+  String dirStr = (runDirection == 0) ? "forward" : "backward";
+  dualPrintln("[Run] dir=" + dirStr + " time=" + String(runTime) + "s");
 
   if (runDirection == 0) {
     // ===== 前进：LED常亮 =====
@@ -211,7 +211,7 @@ void runSequence() {
   }
 
   motorStop();
-  dualPrintln("【状态】一轮结束，等待下一次按键");
+  dualPrintln("[Status] Run finished, waiting for next button press");
 }
 
 // ============================================================
@@ -235,7 +235,7 @@ bool tryParseAssignment(String cmd) {
 
   int level = valStr.toInt();
   if (!isValidLevel(level)) {
-    dualPrintln("【错误】数值必须在1~10之间: " + cmd);
+    dualPrintln("[Error] Value must be between 1~10: " + cmd);
     return true; // 命令格式认出来了，只是值不合法，仍然算"处理过"
   }
 
@@ -250,30 +250,30 @@ bool tryParseAssignment(String cmd) {
   } else if (key == "run_time") {
     int t = valStr.toInt();
     if (t < 1 || t > 1000) {
-      dualPrintln("【错误】run_time 必须在1~1000秒之间: " + valStr);
+      dualPrintln("[Error] run_time must be between 1~1000 seconds: " + valStr);
       return true;
     }
     runTime = t;
-    dualPrintln("【设置】run_time = " + String(runTime) + "秒（仅内存生效，输入 save 才会保存到Flash）");
+    dualPrintln("[Set] run_time = " + String(runTime) + "s (memory only, type save to write to flash)");
     return true;
   } else if (key == "run_direction") {
     int d = valStr.toInt();
     if (d != 0 && d != 1) {
-      dualPrintln("【错误】run_direction 只能是 0(前进) 或 1(后退): " + valStr);
+      dualPrintln("[Error] run_direction must be 0(forward) or 1(backward): " + valStr);
       return true;
     }
     runDirection = d;
-    dualPrintln("【设置】run_direction = " + String(runDirection) +
-                "（" + (runDirection == 0 ? "前进" : "后退") +
-                "）（仅内存生效，输入 save 才会保存到Flash）");
+    dualPrintln("[Set] run_direction = " + String(runDirection) +
+                " (" + (runDirection == 0 ? "forward" : "backward") +
+                ") (memory only, type save to write to flash)");
     return true;
   } else {
-    dualPrintln("【错误】未知字段名: " + key);
+    dualPrintln("[Error] Unknown field name: " + key);
     return true;
   }
 
-  dualPrintln("【设置】" + key + " = " + String(level) +
-              "（仅内存生效，输入 save 才会保存到Flash）");
+  dualPrintln("[Set] " + key + " = " + String(level) +
+              " (memory only, type save to write to flash)");
   return true;
 }
 
@@ -293,10 +293,10 @@ void handleBTCommand(String cmd) {
     int level = cmd.toInt();
     if (isValidLevel(level) && cmd.toInt() != 0) {
       speedForwardL = speedBackwardL = speedForwardR = speedBackwardR = level;
-      dualPrintln("【设置】快捷命令：四个速度值已全部设为 " + String(level) +
-                  "（仅内存生效，输入 save 才会保存到Flash）");
+      dualPrintln("[Set] Shortcut: all four speed values set to " + String(level) +
+                  " (memory only, type save to write to flash)");
     } else {
-      dualPrintln("【错误】无法识别的命令: " + cmd);
+      dualPrintln("[Error] Unrecognized command: " + cmd);
     }
   }
 
@@ -309,19 +309,19 @@ void handleBTCommand(String cmd) {
 void btCallback(esp_spp_cb_event_t event, esp_spp_cb_param_t *param) {
   if (event == ESP_SPP_SRV_OPEN_EVT) {
     btConnected = true;
-    Serial.println("【蓝牙】设备已连接！");
-    SerialBT.println("已连接。可用命令：");
+    Serial.println("[Bluetooth] Device connected!");
+    SerialBT.println("Connected. Available commands:");
     SerialBT.println("  speed_forward_l=N / speed_forward_r=N");
     SerialBT.println("  speed_backward_l=N / speed_backward_r=N");
-    SerialBT.println("  run_time=N (1~1000秒，默认2)");
-    SerialBT.println("  run_direction=N (0=前进，1=后退)");
-    SerialBT.println("  N (1~10，快捷设置全部四个速度值)");
-    SerialBT.println("  save (保存当前配置到Flash)");
-    SerialBT.print("请输入命令："); // 只给BT端显示提示符，USB端已经有自己的提示符
+    SerialBT.println("  run_time=N (1~1000 sec, default 2)");
+    SerialBT.println("  run_direction=N (0=forward, 1=backward)");
+    SerialBT.println("  N (1~10, shortcut to set all four speed values)");
+    SerialBT.println("  save (save current config to flash)");
+    SerialBT.print("Enter command: "); // 只给BT端显示提示符，USB端已经有自己的提示符
   }
   if (event == ESP_SPP_CLOSE_EVT) {
     btConnected = false;
-    Serial.println("【蓝牙】设备已断开连接");
+    Serial.println("[Bluetooth] Device disconnected");
   }
 }
 
@@ -344,18 +344,18 @@ void setup() {
 
   // 初始化文件系统，第一次使用需要格式化(true=格式化失败时自动格式化)
   if (!LittleFS.begin(true)) {
-    Serial.println("【配置】LittleFS挂载失败！配置功能不可用");
+    Serial.println("[Config] LittleFS mount failed! Config feature unavailable");
   } else {
     loadConfig();
   }
 
   SerialBT.begin("ESP32_LineTrace");
   SerialBT.register_callback(btCallback);
-  Serial.println("【蓝牙已开启】设备名: ESP32_LineTrace，等待连接...");
+  Serial.println("[Bluetooth enabled] Device name: ESP32_LineTrace, waiting for connection...");
 
-  Serial.println("【初始化完成】按下BOOT键开始，或通过蓝牙/USB串口发送命令设置速度");
-  Serial.println("可用命令：speed_forward_l=N / speed_forward_r=N / speed_backward_l=N / speed_backward_r=N");
-  Serial.println("         run_time=N(1~1000秒) / run_direction=N(0前进/1后退) / N(1~10快捷速度) / save");
+  Serial.println("[Init complete] Press BOOT button to start, or set speed via bluetooth/USB serial");
+  Serial.println("Available commands: speed_forward_l=N / speed_forward_r=N / speed_backward_l=N / speed_backward_r=N");
+  Serial.println("         run_time=N(1~1000s) / run_direction=N(0=forward/1=backward) / N(1~10 shortcut speed) / save");
   showPrompt();
 }
 
@@ -392,7 +392,7 @@ void loop() {
   if (digitalRead(PIN_BUTTON) == LOW) {
     delay(50);
     if (digitalRead(PIN_BUTTON) == LOW) {
-      dualPrintln("【按键触发】开始运行");
+      dualPrintln("[Button] Triggered, starting run");
       runSequence();
 
       while (digitalRead(PIN_BUTTON) == LOW) {

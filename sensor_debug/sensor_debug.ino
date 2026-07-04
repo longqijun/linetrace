@@ -19,11 +19,12 @@ void setup() {
   sensor_begin();
   motor_begin();
   bt_begin("LineTrace");
-  cmd_begin();
 
   // 阈值提示走 reply 路径（始终可见）
-  Serial.println("启动完成，输入 help 查看命令");
-  Serial.println("输入 print on 开启传感器数据流");
+  Serial.println("Boot complete. Type help for commands");
+  Serial.println("Type 'print on' to enable sensor data stream");
+
+  cmd_begin();
 }
 
 void loop() {
@@ -43,7 +44,7 @@ void loop() {
 
     count++;
     char buf[96];
-    snprintf(buf, sizeof(buf), "[%d] %4d%c %4d%c %4d%c %4d%c %4d%c  pos:%.2f\n",
+    snprintf(buf, sizeof(buf), "[%d] %4d%c %4d%c %4d%c %4d%c %4d%c  pos:%.2f\r\n",
              count,
              vals[0], is_white[0]?'W':'B',
              vals[1], is_white[1]?'W':'B',
