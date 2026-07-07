@@ -129,6 +129,39 @@ static void handle_command(const char* cmd) {
       reply(">>> Stopped\r\n");
     }
 
+  // --- spin left/right N (原地转圈，测试电机扭矩) ---
+  } else if (strncmp(cmd, "spin left ", 10) == 0) {
+    int sec = atoi(cmd + 10);
+    if (sec <= 0 || sec > 60) {
+      reply(">>> Time range 1~60 sec\r\n");
+    } else {
+      int pwm = motor_level_to_pwm(config_get_speed());
+      char buf[64];
+      snprintf(buf, sizeof(buf), ">>> Spin left %d sec, speed %d (PWM %d)\r\n",
+               sec, config_get_speed(), pwm);
+      reply(buf);
+      motor_set(-pwm, pwm);
+      delay((unsigned long)sec * 1000);
+      motor_stop();
+      reply(">>> Stopped\r\n");
+    }
+
+  } else if (strncmp(cmd, "spin right ", 11) == 0) {
+    int sec = atoi(cmd + 11);
+    if (sec <= 0 || sec > 60) {
+      reply(">>> Time range 1~60 sec\r\n");
+    } else {
+      int pwm = motor_level_to_pwm(config_get_speed());
+      char buf[64];
+      snprintf(buf, sizeof(buf), ">>> Spin right %d sec, speed %d (PWM %d)\r\n",
+               sec, config_get_speed(), pwm);
+      reply(buf);
+      motor_set(pwm, -pwm);
+      delay((unsigned long)sec * 1000);
+      motor_stop();
+      reply(">>> Stopped\r\n");
+    }
+
   // --- help ---
   } else if (strcmp(cmd, "help") == 0) {
     reply(">>> Available commands:\r\n");
@@ -137,6 +170,8 @@ static void handle_command(const char* cmd) {
     reply("    print bt  on/off     BT  data stream only\r\n");
     reply("    go N                 forward N sec (1~60)\r\n");
     reply("    back N               backward N sec (1~60)\r\n");
+    reply("    spin left N          spin in place left N sec (1~60)\r\n");
+    reply("    spin right N         spin in place right N sec (1~60)\r\n");
     reply("    stop                 stop motor immediately (also cancels track)\r\n");
     reply("    track on/off         start/stop autonomous line tracking\r\n");
     reply("    speed N              speed level (1~10, default 3, until changed)\r\n");
