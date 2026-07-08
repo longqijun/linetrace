@@ -47,11 +47,12 @@ void track_update() {
   sensor_binary(is_white);
 
   // 5路顺序：CH2,CH3,CH4,CH5,CH6 → index 0~4
-  bool sharp_l = is_white[0]; // CH2，最外侧，急转
-  bool mild_l  = is_white[1]; // CH3，缓转
+  // 传感器物理反装（180°翻转）：index 0(CH2)现在在右侧，index 4(CH6)在左侧，center不受影响
+  bool sharp_l = is_white[4]; // CH6，物理左侧最外，急转
+  bool mild_l  = is_white[3]; // CH5，物理左侧，缓转
   bool center  = is_white[2]; // CH4
-  bool mild_r  = is_white[3]; // CH5，缓转
-  bool sharp_r = is_white[4]; // CH6，最外侧，急转
+  bool mild_r  = is_white[1]; // CH3，物理右侧，缓转
+  bool sharp_r = is_white[0]; // CH2，物理右侧最外，急转
 
   bool lost = !sharp_l && !mild_l && !center && !mild_r && !sharp_r;
   // 十字路口/宽线：左右两侧同时压线，视为直行穿过，不触发转向
@@ -86,19 +87,19 @@ void track_update() {
   } else {
     _lost_since = 0;
     if (sharp_l) {
-      pwm_l = sharp_turn;   // CH2压线，急转（内轮反转）
+      pwm_l = sharp_turn;   // CH6压线，急转（内轮反转）
       mode = "SHARP_L";
       _last_dir = -1;
     } else if (mild_l) {
-      pwm_l = mild_turn;    // CH3压线，缓转
+      pwm_l = mild_turn;    // CH5压线，缓转
       mode = "LEFT";
       _last_dir = -1;
     } else if (sharp_r) {
-      pwm_r = sharp_turn;   // CH6压线，急转（内轮反转）
+      pwm_r = sharp_turn;   // CH2压线，急转（内轮反转）
       mode = "SHARP_R";
       _last_dir = 1;
     } else if (mild_r) {
-      pwm_r = mild_turn;    // CH5压线，缓转
+      pwm_r = mild_turn;    // CH3压线，缓转
       mode = "RIGHT";
       _last_dir = 1;
     }
@@ -111,13 +112,14 @@ void track_update() {
   if (now - _last_dbg >= DEBUG_INTERVAL_MS) {
     _last_dbg = now;
     char buf[96];
+    // 打印顺序按物理左→右排列（index 4→0），与实车左右保持一致
     snprintf(buf, sizeof(buf), "T %6lu %c%c%c%c%c %-8s L:%4d R:%4d\r\n",
              now,
-             is_white[0] ? 'W' : 'B',
-             is_white[1] ? 'W' : 'B',
-             is_white[2] ? 'W' : 'B',
-             is_white[3] ? 'W' : 'B',
              is_white[4] ? 'W' : 'B',
+             is_white[3] ? 'W' : 'B',
+             is_white[2] ? 'W' : 'B',
+             is_white[1] ? 'W' : 'B',
+             is_white[0] ? 'W' : 'B',
              mode, pwm_l, pwm_r);
     out(buf);
   }
