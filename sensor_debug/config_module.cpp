@@ -6,7 +6,7 @@
 #include <ArduinoJson.h>
 
 #define CONFIG_FILE   "/config.json"
-#define DEFAULT_SPEED 3
+#define DEFAULT_SPEED 12  // 原1~10档的3，等比换算到1~40档（3*4）
 
 static int _speed = DEFAULT_SPEED;
 

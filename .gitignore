@@ -3,4 +3,4 @@
 build/
 *.bin
 *.elf
-log.txt
+log*.txt

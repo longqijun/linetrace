@@ -128,11 +128,11 @@
   motor_stop()               滑行停止（coast）
   motor_brake()              制动停止
   motor_set(pwm_l, pwm_r)   设置左右PWM，-255~255，负值=反转
-  motor_level_to_pwm(level)  1~10档转换为PWM值（0~255）
+  motor_level_to_pwm(level)  1~40档转换为PWM值（0~255，原1~10档等比*4扩展分辨率）
 
 [config_module] 配置持久化（LittleFS + JSON，速度档位+5路传感器阈值）
   config_begin()             挂载LittleFS，从/config.json加载配置（无文件/无字段则用默认值）
-  config_get_speed()         获取当前速度档位(1~10)
+  config_get_speed()         获取当前速度档位(1~40)
   config_set_speed(level)    设置当前速度档位（仅内存生效）
   config_save()              把当前速度档位+5路阈值写入/config.json
   config_print()             打印当前配置的JSON内容（Serial+BT）
@@ -167,13 +167,16 @@
   back N                后退N秒（1~60），使用当前速度
   stop                  立即停止电机（同时会退出巡线模式）
   track on/off          开启/关闭自动巡线
-  speed N               设置速度档位（1~10），仅内存生效，需save才写入Flash
+  speed N               设置速度档位（1~40），仅内存生效，需save才写入Flash
   save                  把当前速度档位+5路阈值保存到/config.json
   config                打印当前配置的JSON内容
   threshold CH VALUE    设置CHx(2~6)的阈值，仅内存生效，需save才写入Flash
   help                  显示命令帮助
 
-  注：开机自动从/config.json加载速度档位和阈值；文件不存在或无该字段时用默认值（速度3）。
+  注：开机自动从/config.json加载速度档位和阈值；文件不存在或无该字段时用默认值（速度12）。
+  注：速度档位2026-07-08起从1~10改为1~40（分辨率*4，原N档=新N*4档），
+      旧/config.json里保存的speed字段是旧档位数值，升级后含义已变，
+      需要重新用speed命令设置并save，否则实际PWM会比预期小很多。
 
 ------------------------------------------------------------
 【待完成】

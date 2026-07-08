@@ -7,13 +7,11 @@
 #define PIN_IN3  21  // 左电机
 #define PIN_IN4  22
 
-// 1~10档对应PWM值（参考monitor_test.txt）
-static const int SPEED_TABLE[11] = {0, 25, 51, 76, 102, 127, 153, 178, 204, 229, 255};
-
+// 1~40档，4倍于原1~10档分辨率，线性对应PWM 0~255（原N档 = 新N*4档）
 int motor_level_to_pwm(int level) {
   if (level < 1)  level = 1;
-  if (level > 10) level = 10;
-  return SPEED_TABLE[level];
+  if (level > 40) level = 40;
+  return (int)(level * 255.0f / 40.0f + 0.5f);
 }
 
 void motor_begin() {

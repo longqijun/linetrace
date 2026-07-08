@@ -61,8 +61,8 @@ static void handle_command(const char* cmd) {
   // --- speed N ---
   } else if (strncmp(cmd, "speed ", 6) == 0) {
     int level = atoi(cmd + 6);
-    if (level < 1 || level > 10) {
-      reply(">>> Speed range 1~10\r\n");
+    if (level < 1 || level > 40) {
+      reply(">>> Speed range 1~40\r\n");
     } else {
       config_set_speed(level);
       char buf[48];
@@ -174,7 +174,7 @@ static void handle_command(const char* cmd) {
     reply("    spin right N         spin in place right N sec (1~60)\r\n");
     reply("    stop                 stop motor immediately (also cancels track)\r\n");
     reply("    track on/off         start/stop autonomous line tracking\r\n");
-    reply("    speed N              speed level (1~10, default 3, until changed)\r\n");
+    reply("    speed N              speed level (1~40, default 12, until changed)\r\n");
     reply("    save                 save speed+thresholds to flash (/config.json)\r\n");
     reply("    config               print current config as JSON\r\n");
     reply("    threshold CH VALUE   set CHx (2~6) threshold, memory only\r\n");
