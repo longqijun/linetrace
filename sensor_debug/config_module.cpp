@@ -1,5 +1,6 @@
 #include "config_module.h"
 #include "sensor_module.h"
+#include "track_module.h"
 #include "bt_module.h"
 #include <Arduino.h>
 #include <LittleFS.h>
@@ -26,6 +27,7 @@ void config_begin() {
   if (err) return;
 
   _speed = doc["speed"] | DEFAULT_SPEED;
+  track_set_turn_ratio(doc["turn_ratio"] | track_get_turn_ratio());
 
   JsonArray arr = doc["threshold"];
   if (!arr.isNull()) {
@@ -49,6 +51,7 @@ void config_set_speed(int level) {
 void config_save() {
   StaticJsonDocument<256> doc;
   doc["speed"] = _speed;
+  doc["turn_ratio"] = track_get_turn_ratio();
 
   JsonArray arr = doc.createNestedArray("threshold");
   for (int i = 0; i < SENSOR_COUNT; i++) {
@@ -65,6 +68,7 @@ void config_save() {
 void config_print() {
   StaticJsonDocument<256> doc;
   doc["speed"] = _speed;
+  doc["turn_ratio"] = track_get_turn_ratio();
 
   JsonArray arr = doc.createNestedArray("threshold");
   for (int i = 0; i < SENSOR_COUNT; i++) {

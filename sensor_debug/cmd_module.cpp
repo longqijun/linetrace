@@ -71,6 +71,18 @@ static void handle_command(const char* cmd) {
       reply(buf);
     }
 
+  // --- turnspeed N (急弯外轮速度比例，百分比0~100) ---
+  } else if (strncmp(cmd, "turnspeed ", 10) == 0) {
+    int pct = atoi(cmd + 10);
+    if (pct < 0 || pct > 100) {
+      reply(">>> Turn speed range 0~100\r\n");
+    } else {
+      track_set_turn_ratio(pct / 100.0f);
+      char buf[80];
+      snprintf(buf, sizeof(buf), ">>> Turn speed set to %d%% (outer wheel ratio on sharp turn)\r\n", pct);
+      reply(buf);
+    }
+
   // --- save ---
   } else if (strcmp(cmd, "save") == 0) {
     config_save();
@@ -175,7 +187,8 @@ static void handle_command(const char* cmd) {
     reply("    stop                 stop motor immediately (also cancels track)\r\n");
     reply("    track on/off         start/stop autonomous line tracking\r\n");
     reply("    speed N              speed level (1~40, default 12, until changed)\r\n");
-    reply("    save                 save speed+thresholds to flash (/config.json)\r\n");
+    reply("    turnspeed N          outer wheel ratio on sharp turn (0~100%, default 65)\r\n");
+    reply("    save                 save speed+turnspeed+thresholds to flash (/config.json)\r\n");
     reply("    config               print current config as JSON\r\n");
     reply("    threshold CH VALUE   set CHx (2~6) threshold, memory only\r\n");
     reply("    help                 show this help\r\n");

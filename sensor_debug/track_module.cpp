@@ -10,6 +10,10 @@
 #define TURN_RATIO_MILD  0.5f
 // CH2/CH6触发的急转，内侧轮反转比例（负值=反转），用于R70这类极小半径弯，需实车试调
 #define TURN_RATIO_SHARP (-0.3f)
+// 急弯时外轮速度比例（占base的百分比，0.0~1.0，运行时可调，默认值仅为起调参考）
+// 目的：急弯只反转内轮、外轮仍全速时车身带着直道动能冲进弯道容易冲出赛道，
+// 外轮同步降速能减少入弯动能，配合内轮反转更容易在R70内掉头
+#define TURN_OUTER_RATIO_DEFAULT 0.65f
 // 丢线后延续最后转向方向找线的超时(ms)，超时未找回则停车
 #define LOST_TIMEOUT_MS 1500
 
@@ -20,6 +24,17 @@ static bool _on = false;
 static unsigned long _last_dbg = 0;
 static int _last_dir = 0;          // -1=上次左转  0=无记录  +1=上次右转
 static unsigned long _lost_since = 0;
+static float _turn_outer_ratio = TURN_OUTER_RATIO_DEFAULT;
+
+float track_get_turn_ratio() {
+  return _turn_outer_ratio;
+}
+
+void track_set_turn_ratio(float ratio) {
+  if (ratio < 0.0f) ratio = 0.0f;
+  if (ratio > 1.0f) ratio = 1.0f;
+  _turn_outer_ratio = ratio;
+}
 
 void track_begin() {
   _on = false;
@@ -88,6 +103,7 @@ void track_update() {
     _lost_since = 0;
     if (sharp_l) {
       pwm_l = sharp_turn;   // CH6压线，急转（内轮反转）
+      pwm_r = (int)(base * _turn_outer_ratio);  // 外轮同步降速，减少入弯动能
       mode = "SHARP_L";
       _last_dir = -1;
     } else if (mild_l) {
@@ -96,6 +112,7 @@ void track_update() {
       _last_dir = -1;
     } else if (sharp_r) {
       pwm_r = sharp_turn;   // CH2压线，急转（内轮反转）
+      pwm_l = (int)(base * _turn_outer_ratio);  // 外轮同步降速，减少入弯动能
       mode = "SHARP_R";
       _last_dir = 1;
     } else if (mild_r) {
