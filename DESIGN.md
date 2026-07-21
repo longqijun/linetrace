@@ -23,6 +23,48 @@
 
 ---
 
+## 参数调优记录：sharpratio -30%→-40%
+
+**日期：** 2026-07-22
+
+**背景：** `log分析/log-2.txt`（自建赛道，46.6秒连续巡线，详见`log分析/log-2-分析报告.txt`）
+分析发现两次丢线时长逼近`LOST_TIMEOUT_MS`(1500ms)上限的情况，均为`SHARP_R→LOST_R`
+（右转弯后长时间找不到线）：T1107117~1108497约1380ms（余量120ms）、
+T1122087~1123407约1320ms（余量180ms）。虽然两次都在超时前重新压回线上没有真正
+触发`LOST_STOP`，但余量偏薄，属于隐患而非已确认的失败。
+
+为此新增了`sharpratio`命令（对应`_sharp_ratio`，原来是硬编码`TURN_RATIO_SHARP`
+常量，现在跟`turnspeed`一样运行时可调+持久化，见"软件模块设计"里track_module的
+相关记录），目的是加大急弯内轮反转力度，让车头更快甩过弯，缩短丢线时长。
+
+**改动（本轮只改了一个参数）：**
+
+调整前（log-2.txt实测时的参数，`sharp_ratio`为代码默认值-0.3，未曾调过）：
+```json
+{"speed":16,"turn_ratio":0.65,"sharp_ratio":-0.3,"threshold":[1546,1580,1422,1400,1500]}
+```
+
+调整后（实车执行`sharpratio 40` + `save`）：
+```json
+{"speed":16,"turn_ratio":0.65,"sharp_ratio":-0.4,"threshold":[1546,1580,1422,1400,1500]}
+```
+
+只有`sharp_ratio`从-0.3变成-0.4（急弯内轮反转力度从30%加大到40%），
+`speed`/`turn_ratio`/5路阈值均未变。
+
+**效果：** 用户实车（仍是自建赛道）测试反馈"效果还可以"——这是定性判断，
+目前没有配套的新log文件做量化对比，无法确认之前那两处逼近超时的LOST_R具体
+缩短了多少。
+
+**待办：**
+- 如需量化验证，按跟log-2同样的方式（`print bt on` + `track on`）跑一遍并导出
+  日志（存成`log分析/log-3.txt`），可以直接对比同样两个弯（右转SHARP_R→LOST_R）
+  这次丢线时长是否比log-2的1320~1380ms明显缩短，以及有没有引入新问题
+  （比如内轮反转力度加大后是否出现打滑、左转是否受影响）
+- 仍未在公司比赛赛道实测，这轮调参的结论只在自建赛道上成立
+
+---
+
 ## 电机供电改造：升压至7V
 
 **日期：** 2026-07-19
@@ -128,7 +170,7 @@ graph TD
 
 **config_module** — LittleFS + JSON 配置持久化
 - 接口：`config_begin()` / `config_get_speed()` / `config_set_speed(level)` / `config_save()` / `config_print()`
-- 持久化三类数据：速度档位（int，自己持有）+ 急弯外轮比例（float，通过`track_module`的get/set读写）+ 5路阈值（数组，通过`sensor_module`的get/set threshold读写），阈值和急弯外轮比例自己都不存副本，只做json↔模块内变量的搬运
+- 持久化四类数据：速度档位（int，自己持有）+ 急弯外轮比例（float，通过`track_module`的get/set读写）+ 急弯内轮反转比例（float，通过`track_module`的get/set读写）+ 5路阈值（数组，通过`sensor_module`的get/set threshold读写），阈值和这两个比例自己都不存副本，只做json↔模块内变量的搬运
 - 开机`config_begin()`挂载LittleFS、读`/config.json`，文件不存在或字段缺失则保留默认值（速度12，阈值用sensor_module内置默认）
 - `config_save()`是唯一写入Flash的入口，`config_set_speed`/`sensor_set_threshold`只改内存，需要显式`save`命令持久化
 
@@ -137,10 +179,10 @@ graph TD
 - 核心状态机在`track_update()`，每次loop调用一次，非阻塞：
   - 读5路二值状态，映射为`sharp_l/mild_l/center/mild_r/sharp_r`（因传感器反装，index 0↔CH2对应物理右侧，index 4↔CH6对应物理左侧）
   - 判定优先级：丢线(lost) > 十字路口/宽线(cross) > 急转(sharp) > 缓转(mild) > 直行(center/默认)
-  - 差速通过修改单侧PWM实现：缓转内轮减速50%（`TURN_RATIO_MILD`），急转内轮反转30%（`TURN_RATIO_SHARP`）+ 外轮同步降速到`_turn_outer_ratio`（默认65%，运行时可调，见`turnspeed`命令），应对R70急弯——外轮全速会带着直道动能冲进弯道，同步降速减少入弯动能
+  - 差速通过修改单侧PWM实现：缓转内轮减速50%（`TURN_RATIO_MILD`，固定），急转内轮反转到`_sharp_ratio`（默认-30%，运行时可调，见`sharpratio`命令）+ 外轮同步降速到`_turn_outer_ratio`（默认65%，运行时可调，见`turnspeed`命令），应对R70急弯——外轮全速会带着直道动能冲进弯道，同步降速减少入弯动能
   - 丢线后用`_last_dir`延续上次转向方向找线，超过`LOST_TIMEOUT_MS`(1.5s)仍找不到则停车
   - 内置调试log（`DEBUG_INTERVAL_MS`节流），走`out()`所以受`print_module`开关控制
-- 依赖`config_module`取当前速度档位算基准PWM，依赖`motor_module`下发实际PWM；`_turn_outer_ratio`被`config_module`读写用于持久化（对称于`sensor_module`的阈值模式）
+- 依赖`config_module`取当前速度档位算基准PWM，依赖`motor_module`下发实际PWM；`_turn_outer_ratio`/`_sharp_ratio`均被`config_module`读写用于持久化（对称于`sensor_module`的阈值模式）
 
 **cmd_module** — 命令行（USB+BT统一处理）
 - 接口：`cmd_begin()` / `cmd_poll()`
@@ -153,6 +195,92 @@ graph TD
 - `setup()`：关闭欠压检测 → 初始化LED/按钮引脚 → 按顺序`print_begin → sensor_begin → motor_begin → config_begin → track_begin → bt_begin` → 打印一次`config_print()` → `cmd_begin()`
 - `loop()`非阻塞轮询顺序：LED状态同步蓝牙连接 → `cmd_poll()`处理命令 → Boot按钮消抖切换track on/off → `track_update()` → 每200ms打印一次传感器原始数据（受`print_module`控制）
 - Boot按钮（GPIO0）是唯一不经过命令行、直接切换巡线开关的物理入口
+
+### track_module 算法确认与详细流程图
+
+**日期：** 2026-07-21
+
+**算法类型确认：** 基于优先级判定的有限状态机（FSM）+ 三级差速 bang-bang 控制，**不是PID**。
+
+- `sensor_module.cpp` 计算的连续加权位置 `sensor_position()`（-1~+1）**只用于 `print on` 调试打印**，`track_update()` 的实际转向决策完全不使用这个值，走的是5路各自独立的白/黑二值状态（`sensor_binary()`），所以控制路径上不存在PID需要的"连续误差量"。
+- 转向输出是离散的几档（直行/缓转50%内轮减速/急转30%内轮反转+外轮同步降速），跳变式切档而非连续比例调节，是bang-bang控制的特征。
+- 决策走固定优先级判定树：**丢线 > 十字路口/宽线 > 急转 > 缓转 > 直行**，逐条`if-else`短路判断，不是误差反馈闭环运算。
+
+**完整流程图（对应 `track_update()`，每次 `loop()` 调用一次，非阻塞）：**
+
+```mermaid
+flowchart TD
+  start([track_update 被调用]) --> onCheck{track是否开启?}
+  onCheck -- 否 --> ret1([直接返回])
+  onCheck -- 是 --> readSensor[sensor_binary读取5路二值状态]
+
+  readSensor --> mapIdx["映射为 sharp_l/mild_l/center/mild_r/sharp_r<br/>（因传感器180°反装，index0↔CH2=物理右，index4↔CH6=物理左）"]
+
+  mapIdx --> calcState["计算 lost = 五路全黑<br/>计算 cross = 左侧任一压线 AND 右侧任一压线"]
+
+  calcState --> calcPwm["base = speed档位→PWM<br/>mild_turn = base×0.5<br/>sharp_turn = base×(-0.3)<br/>初始 pwm_l = pwm_r = base"]
+
+  calcPwm --> lostQ{lost?}
+
+  lostQ -- 是 --> lostSinceQ{lost_since==0?}
+  lostSinceQ -- 是 --> setLostSince[记录 lost_since = now]
+  lostSinceQ -- 否 --> timeoutQ
+  setLostSince --> timeoutQ{now - lost_since > 1.5s?}
+  timeoutQ -- 是 --> lostStop["LOST_STOP<br/>pwm_l=0 pwm_r=0（停车）"]
+  timeoutQ -- 否 --> dirQ{_last_dir?}
+  dirQ -- "< 0（上次左转）" --> lostL["LOST_L<br/>pwm_l=sharp_turn（延续左转找线）<br/>pwm_r=base"]
+  dirQ -- "> 0（上次右转）" --> lostR["LOST_R<br/>pwm_r=sharp_turn（延续右转找线）<br/>pwm_l=base"]
+  dirQ -- "== 0（无记录，从未转过）" --> lostBlind["⚠边界情况：无分支命中<br/>保持初始值 pwm_l=pwm_r=base<br/>盲目直行直到超时"]
+
+  lostQ -- 否 --> crossQ{cross?}
+  crossQ -- 是 --> crossMode["CROSS：清零lost_since<br/>不改pwm（直行穿过）<br/>不更新_last_dir"]
+
+  crossQ -- 否 --> clearLost[清零 lost_since] --> sharpLQ{sharp_l?}
+  sharpLQ -- 是 --> sharpL["SHARP_L（CH6压线，急转）<br/>pwm_l = sharp_turn（内轮反转-30%）<br/>pwm_r = base×turn_outer_ratio（外轮降速，默认65%）<br/>_last_dir = -1"]
+
+  sharpLQ -- 否 --> mildLQ{mild_l?}
+  mildLQ -- 是 --> mildL["LEFT（CH5压线，缓转）<br/>pwm_l = mild_turn（内轮减速50%）<br/>_last_dir = -1"]
+
+  mildLQ -- 否 --> sharpRQ{sharp_r?}
+  sharpRQ -- 是 --> sharpR["SHARP_R（CH2压线，急转）<br/>pwm_r = sharp_turn（内轮反转-30%）<br/>pwm_l = base×turn_outer_ratio（外轮降速）<br/>_last_dir = +1"]
+
+  sharpRQ -- 否 --> mildRQ{mild_r?}
+  mildRQ -- 是 --> mildR["RIGHT（CH3压线，缓转）<br/>pwm_r = mild_turn（内轮减速50%）<br/>_last_dir = +1"]
+
+  mildRQ -- 否 --> straight["STRAIGHT（仅CH4压线或全白）<br/>pwm_l = pwm_r = base<br/>_last_dir 不变"]
+
+  lostStop --> motorOut
+  lostL --> motorOut
+  lostR --> motorOut
+  lostBlind --> motorOut
+  crossMode --> motorOut
+  sharpL --> motorOut
+  mildL --> motorOut
+  sharpR --> motorOut
+  mildR --> motorOut
+  straight --> motorOut
+
+  motorOut[motor_set 下发 pwm_l/pwm_r] --> dbgQ{距上次调试log ≥30ms?}
+  dbgQ -- 是 --> dbgLog["打印: 时间戳 + 5路W/B图案(左→右) + mode + 实际PWM"]
+  dbgQ -- 否 --> ret2([本次update结束])
+  dbgLog --> ret2
+```
+
+**9种运行模式一览表：**
+
+| 模式 | 触发条件 | pwm_l | pwm_r | 更新_last_dir |
+|---|---|---|---|---|
+| STRAIGHT | 仅CH4压线或全白 | base | base | 否 |
+| LEFT | CH5压线（缓转） | base×0.5 | base | 是→-1 |
+| RIGHT | CH3压线（缓转） | base | base×0.5 | 是→+1 |
+| SHARP_L | CH6压线（急转） | base×(-0.3) | base×outer_ratio | 是→-1 |
+| SHARP_R | CH2压线（急转） | base×outer_ratio | base×(-0.3) | 是→+1 |
+| CROSS | 左右同时压线（十字/宽线） | base | base | 否 |
+| LOST_L | 全黑+上次左转 | base×(-0.3) | base | 否 |
+| LOST_R | 全黑+上次右转 | base | base×(-0.3) | 否 |
+| LOST_STOP | 全黑超过1.5s | 0 | 0 | 否 |
+
+**发现的边界情况（非bug，仅记录）：** 开机后如果还没转过弯（`_last_dir==0`）就直接丢线（比如起点没对准线），`lost`分支里`dirQ`的两个条件都不满足，代码不会进入任何`if/else if`分支，`pwm_l/pwm_r`保持函数开头的初始值`base`（直行）——车会盲目直行直到1.5s超时才停，而不是像正常丢线那样带方向找线。实际场景中影响很小（开局对准线即可避免），但流程图里如实标出这个分支缺口。
 
 ### 关键设计约定
 

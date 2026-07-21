@@ -28,6 +28,7 @@ void config_begin() {
 
   _speed = doc["speed"] | DEFAULT_SPEED;
   track_set_turn_ratio(doc["turn_ratio"] | track_get_turn_ratio());
+  track_set_sharp_ratio(doc["sharp_ratio"] | track_get_sharp_ratio());
 
   JsonArray arr = doc["threshold"];
   if (!arr.isNull()) {
@@ -52,6 +53,7 @@ void config_save() {
   StaticJsonDocument<256> doc;
   doc["speed"] = _speed;
   doc["turn_ratio"] = track_get_turn_ratio();
+  doc["sharp_ratio"] = track_get_sharp_ratio();
 
   JsonArray arr = doc.createNestedArray("threshold");
   for (int i = 0; i < SENSOR_COUNT; i++) {
@@ -69,6 +71,7 @@ void config_print() {
   StaticJsonDocument<256> doc;
   doc["speed"] = _speed;
   doc["turn_ratio"] = track_get_turn_ratio();
+  doc["sharp_ratio"] = track_get_sharp_ratio();
 
   JsonArray arr = doc.createNestedArray("threshold");
   for (int i = 0; i < SENSOR_COUNT; i++) {

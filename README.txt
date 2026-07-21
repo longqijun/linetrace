@@ -22,7 +22,7 @@
        （print on，实测过线看白/黑ADC值，threshold CH VALUE 调整，save持久化）
     2. 用track_module.cpp里已有的调试log（格式 "T <ms> <WB图案> <模式> L: R:"）
        实测R70发卡弯能不能过
-    3. 过不去再调track_module.cpp里的TURN_RATIO_SHARP（现在是-0.3，可以调更负）
+    3. 过不去可用BT命令 sharpratio N 现场调整内轮反转比例（0~100%，默认30，运行时可调，不用重新烧录）
 
 ------------------------------------------------------------
 
@@ -130,25 +130,27 @@
   motor_set(pwm_l, pwm_r)   设置左右PWM，-255~255，负值=反转
   motor_level_to_pwm(level)  1~40档转换为PWM值（0~255，原1~10档等比*4扩展分辨率）
 
-[config_module] 配置持久化（LittleFS + JSON，速度档位+急弯外轮比例+5路传感器阈值）
+[config_module] 配置持久化（LittleFS + JSON，速度档位+急弯外轮比例+急弯内轮反转比例+5路传感器阈值）
   config_begin()             挂载LittleFS，从/config.json加载配置（无文件/无字段则用默认值）
   config_get_speed()         获取当前速度档位(1~40)
   config_set_speed(level)    设置当前速度档位（仅内存生效）
-  config_save()              把当前速度档位+急弯外轮比例+5路阈值写入/config.json
+  config_save()              把当前速度档位+急弯外轮比例+急弯内轮反转比例+5路阈值写入/config.json
   config_print()             打印当前配置的JSON内容（Serial+BT）
   注：阈值默认值在sensor_module内置，json有threshold字段时才覆盖；
       save时阈值取sensor_module当前值；可用BT命令 threshold CH VALUE 现场调整（仅内存，需save持久化）
   注：急弯外轮比例默认值在track_module内置(0.65)，json有turn_ratio字段时才覆盖；
       可用BT命令 turnspeed N 现场调整（仅内存，需save持久化）
+  注：急弯内轮反转比例默认值在track_module内置(-0.3)，json有sharp_ratio字段时才覆盖；
+      可用BT命令 sharpratio N 现场调整（仅内存，需save持久化）
 
 [track_module] 自动巡线（三级差速转向，CH4居中，CH3/CH5缓转，CH2/CH6急转）
   track_begin()              初始化，默认关闭
   track_set(bool)            开启/关闭巡线（关闭时会停止电机）
   track_is_on()              返回bool，是否巡线中
   track_update()             每次loop调用，仅开启时生效，非阻塞
-  注：CH3/CH5压线=缓转（内轮减速50%）；CH2/CH6压线=急转（内轮反转-30%，外轮同步降速至65%，
-      应对R70急弯——外轮全速会带着直道动能冲进弯道，同步降速减少入弯动能，外轮比例运行时可调
-      见BT命令 turnspeed N）
+  注：CH3/CH5压线=缓转（内轮减速50%）；CH2/CH6压线=急转（内轮反转默认30%，外轮同步降速默认65%，
+      应对R70急弯——外轮全速会带着直道动能冲进弯道，同步降速减少入弯动能，两个比例均运行时可调
+      见BT命令 turnspeed N / sharpratio N）
   注：左右两侧同时压线（十字路口/宽线）判定为直行穿过，不触发转向
   注：丢线（5路全黑）延续上次转向方向继续找线，超时1.5s停车
   注：内含调试log（30ms节流，格式 "T <ms> <5路WB图案> <模式> L: R:"），
@@ -173,7 +175,8 @@
   track on/off          开启/关闭自动巡线
   speed N               设置速度档位（1~40），仅内存生效，需save才写入Flash
   turnspeed N           设置急弯外轮速度比例（0~100%，默认65），仅内存生效，需save才写入Flash
-  save                  把当前速度档位+急弯外轮比例+5路阈值保存到/config.json
+  sharpratio N          设置急弯内轮反转比例（0~100%，默认30），仅内存生效，需save才写入Flash
+  save                  把当前速度档位+急弯外轮比例+急弯内轮反转比例+5路阈值保存到/config.json
   config                打印当前配置的JSON内容
   threshold CH VALUE    设置CHx(2~6)的阈值，仅内存生效，需save才写入Flash
   help                  显示命令帮助

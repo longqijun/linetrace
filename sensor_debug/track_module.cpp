@@ -9,7 +9,8 @@
 // 差速转向：CH3/CH5触发的缓转，内侧轮减速比例（0.0~1.0），越小转向越急
 #define TURN_RATIO_MILD  0.5f
 // CH2/CH6触发的急转，内侧轮反转比例（负值=反转），用于R70这类极小半径弯，需实车试调
-#define TURN_RATIO_SHARP (-0.3f)
+// 默认值，运行时可通过sharpratio命令调整（供config_module持久化用）
+#define TURN_RATIO_SHARP_DEFAULT (-0.3f)
 // 急弯时外轮速度比例（占base的百分比，0.0~1.0，运行时可调，默认值仅为起调参考）
 // 目的：急弯只反转内轮、外轮仍全速时车身带着直道动能冲进弯道容易冲出赛道，
 // 外轮同步降速能减少入弯动能，配合内轮反转更容易在R70内掉头
@@ -25,6 +26,7 @@ static unsigned long _last_dbg = 0;
 static int _last_dir = 0;          // -1=上次左转  0=无记录  +1=上次右转
 static unsigned long _lost_since = 0;
 static float _turn_outer_ratio = TURN_OUTER_RATIO_DEFAULT;
+static float _sharp_ratio = TURN_RATIO_SHARP_DEFAULT;
 
 float track_get_turn_ratio() {
   return _turn_outer_ratio;
@@ -34,6 +36,16 @@ void track_set_turn_ratio(float ratio) {
   if (ratio < 0.0f) ratio = 0.0f;
   if (ratio > 1.0f) ratio = 1.0f;
   _turn_outer_ratio = ratio;
+}
+
+float track_get_sharp_ratio() {
+  return _sharp_ratio;
+}
+
+void track_set_sharp_ratio(float ratio) {
+  if (ratio < -1.0f) ratio = -1.0f;
+  if (ratio > 0.0f) ratio = 0.0f;
+  _sharp_ratio = ratio;
 }
 
 void track_begin() {
@@ -75,7 +87,7 @@ void track_update() {
 
   int base = motor_level_to_pwm(config_get_speed());
   int mild_turn  = (int)(base * TURN_RATIO_MILD);
-  int sharp_turn = (int)(base * TURN_RATIO_SHARP);
+  int sharp_turn = (int)(base * _sharp_ratio);
 
   int pwm_l = base;
   int pwm_r = base;

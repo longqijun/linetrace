@@ -83,6 +83,18 @@ static void handle_command(const char* cmd) {
       reply(buf);
     }
 
+  // --- sharpratio N (急弯内轮反转比例，百分比0~100，内部转成负值) ---
+  } else if (strncmp(cmd, "sharpratio ", 11) == 0) {
+    int pct = atoi(cmd + 11);
+    if (pct < 0 || pct > 100) {
+      reply(">>> Sharp ratio range 0~100\r\n");
+    } else {
+      track_set_sharp_ratio(-pct / 100.0f);
+      char buf[80];
+      snprintf(buf, sizeof(buf), ">>> Sharp ratio set to -%d%% (inner wheel reverse on sharp turn)\r\n", pct);
+      reply(buf);
+    }
+
   // --- save ---
   } else if (strcmp(cmd, "save") == 0) {
     config_save();
@@ -188,7 +200,8 @@ static void handle_command(const char* cmd) {
     reply("    track on/off         start/stop autonomous line tracking\r\n");
     reply("    speed N              speed level (1~40, default 12, until changed)\r\n");
     reply("    turnspeed N          outer wheel ratio on sharp turn (0~100%, default 65)\r\n");
-    reply("    save                 save speed+turnspeed+thresholds to flash (/config.json)\r\n");
+    reply("    sharpratio N         inner wheel reverse ratio on sharp turn (0~100%, default 30)\r\n");
+    reply("    save                 save speed+turnspeed+sharpratio+thresholds to flash (/config.json)\r\n");
     reply("    config               print current config as JSON\r\n");
     reply("    threshold CH VALUE   set CHx (2~6) threshold, memory only\r\n");
     reply("    help                 show this help\r\n");
