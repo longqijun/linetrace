@@ -115,6 +115,7 @@ void print_file_dump() {
   int n;
   while ((n = f.read((uint8_t*)buf, sizeof(buf))) > 0) {
     Serial.write((const uint8_t*)buf, n);
+    yield();  // 大文件在115200波特率下要传输好几秒，不yield会喂不到任务看门狗导致复位
   }
   f.close();
   Serial.println(">>> --- log dump end ---");

@@ -127,8 +127,13 @@ sensor_debug/
   bangbang更平稳（Kd项对传感器噪声敏感，如果车身抖动明显优先怀疑Kd偏大）
 - BT经常连不上的问题还没查出根因，已加BT connected/ERROR诊断log和`print file on`/
   `log dump`这套Flash留档机制先顶上，但根本原因待排查
-- `print file on`刚加上，还没实测验证过BT断连期间文件log能否完整记录、`log dump`在
-  串口监视器里倒出大文件时是否正常不乱码
+- `print file on`刚加上，还没实测验证过BT断连期间文件log能否完整记录
+- **已确认过一个bug并修复（2026-07-22）：** `log dump`在文件较大（log-3.txt实测约
+  193KB）时会触发ESP32任务看门狗复位——`print_file_dump()`用`while`循环连续
+  `Serial.write()`，193KB在115200波特率下要传输约17秒，中途没有`yield()`会喂不到
+  看门狗。已在循环里加`yield()`修复，但还没重新烧录实测验证过修复是否彻底解决
+  （比如超大文件在17秒的Serial阻塞期间`cmd_poll()`/`track_update()`会不会跑不到，
+  需要注意`log dump`期间车辆最好是静止/track off状态，不要指望这期间还能正常巡线）
 
 ---
 
