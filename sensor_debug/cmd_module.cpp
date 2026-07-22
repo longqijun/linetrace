@@ -95,6 +95,46 @@ static void handle_command(const char* cmd) {
       reply(buf);
     }
 
+  // --- algo bangbang/pid ---
+  } else if (strcmp(cmd, "algo bangbang") == 0) {
+    track_set_algo(TRACK_ALGO_BANGBANG);
+    reply(">>> Track algorithm: BANGBANG\r\n");
+  } else if (strcmp(cmd, "algo pid") == 0) {
+    track_set_algo(TRACK_ALGO_PID);
+    reply(">>> Track algorithm: PID\r\n");
+
+  // --- pid kp/ki/kd N (float, PID增益) ---
+  } else if (strncmp(cmd, "pid kp ", 7) == 0) {
+    float v = atof(cmd + 7);
+    if (v < 0.0f) {
+      reply(">>> PID Kp must be >= 0\r\n");
+    } else {
+      track_set_pid_kp(v);
+      char buf[48];
+      snprintf(buf, sizeof(buf), ">>> PID Kp set to %.2f\r\n", v);
+      reply(buf);
+    }
+  } else if (strncmp(cmd, "pid ki ", 7) == 0) {
+    float v = atof(cmd + 7);
+    if (v < 0.0f) {
+      reply(">>> PID Ki must be >= 0\r\n");
+    } else {
+      track_set_pid_ki(v);
+      char buf[48];
+      snprintf(buf, sizeof(buf), ">>> PID Ki set to %.2f\r\n", v);
+      reply(buf);
+    }
+  } else if (strncmp(cmd, "pid kd ", 7) == 0) {
+    float v = atof(cmd + 7);
+    if (v < 0.0f) {
+      reply(">>> PID Kd must be >= 0\r\n");
+    } else {
+      track_set_pid_kd(v);
+      char buf[48];
+      snprintf(buf, sizeof(buf), ">>> PID Kd set to %.2f\r\n", v);
+      reply(buf);
+    }
+
   // --- save ---
   } else if (strcmp(cmd, "save") == 0) {
     config_save();
@@ -201,7 +241,11 @@ static void handle_command(const char* cmd) {
     reply("    speed N              speed level (1~40, default 12, until changed)\r\n");
     reply("    turnspeed N          outer wheel ratio on sharp turn (0~100%, default 65)\r\n");
     reply("    sharpratio N         inner wheel reverse ratio on sharp turn (0~100%, default 30)\r\n");
-    reply("    save                 save speed+turnspeed+sharpratio+thresholds to flash (/config.json)\r\n");
+    reply("    algo bangbang/pid    select track algorithm (default bangbang)\r\n");
+    reply("    pid kp N             PID proportional gain (float, default 40.0)\r\n");
+    reply("    pid ki N             PID integral gain (float, default 0.0)\r\n");
+    reply("    pid kd N             PID derivative gain (float, default 5.0)\r\n");
+    reply("    save                 save speed+turnspeed+sharpratio+algo+pid gains+thresholds to flash (/config.json)\r\n");
     reply("    config               print current config as JSON\r\n");
     reply("    threshold CH VALUE   set CHx (2~6) threshold, memory only\r\n");
     reply("    help                 show this help\r\n");

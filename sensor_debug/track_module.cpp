@@ -21,12 +21,40 @@
 // 调试log节流间隔(ms)，定位问题用，确认后可调大或删除
 #define DEBUG_INTERVAL_MS 30
 
+// PID模式默认增益，均为起调参考值，未实车验证过，需实车试调
+// 误差用sensor_position_from()的-1.0~+1.0，输出直接是左右轮PWM的差速修正量（与base同量纲）
+#define PID_KP_DEFAULT 40.0f
+#define PID_KI_DEFAULT 0.0f
+#define PID_KD_DEFAULT 5.0f
+// 积分限幅，防止长时间小误差把积分项攒到失控（抗积分饱和），限幅值同样未实车验证
+#define PID_INTEGRAL_CLAMP 2.0f
+
 static bool _on = false;
 static unsigned long _last_dbg = 0;
 static int _last_dir = 0;          // -1=上次左转  0=无记录  +1=上次右转
 static unsigned long _lost_since = 0;
 static float _turn_outer_ratio = TURN_OUTER_RATIO_DEFAULT;
 static float _sharp_ratio = TURN_RATIO_SHARP_DEFAULT;
+
+static int _algo = TRACK_ALGO_BANGBANG;
+static float _pid_kp = PID_KP_DEFAULT;
+static float _pid_ki = PID_KI_DEFAULT;
+static float _pid_kd = PID_KD_DEFAULT;
+static float _pid_integral = 0.0f;
+static float _pid_last_error = 0.0f;
+static unsigned long _pid_last_ms = 0;
+
+static void pid_reset() {
+  _pid_integral = 0.0f;
+  _pid_last_error = 0.0f;
+  _pid_last_ms = 0;
+}
+
+static int clamp_pwm(int v) {
+  if (v > 255) return 255;
+  if (v < -255) return -255;
+  return v;
+}
 
 float track_get_turn_ratio() {
   return _turn_outer_ratio;
@@ -48,10 +76,28 @@ void track_set_sharp_ratio(float ratio) {
   _sharp_ratio = ratio;
 }
 
+int track_get_algo() {
+  return _algo;
+}
+
+void track_set_algo(int algo) {
+  if (algo != TRACK_ALGO_BANGBANG && algo != TRACK_ALGO_PID) algo = TRACK_ALGO_BANGBANG;
+  _algo = algo;
+  pid_reset();   // 切换算法时清掉上一次的积分/微分历史，避免用旧模式的误差历史误导新模式
+}
+
+float track_get_pid_kp() { return _pid_kp; }
+void  track_set_pid_kp(float kp) { if (kp < 0.0f) kp = 0.0f; _pid_kp = kp; }
+float track_get_pid_ki() { return _pid_ki; }
+void  track_set_pid_ki(float ki) { if (ki < 0.0f) ki = 0.0f; _pid_ki = ki; }
+float track_get_pid_kd() { return _pid_kd; }
+void  track_set_pid_kd(float kd) { if (kd < 0.0f) kd = 0.0f; _pid_kd = kd; }
+
 void track_begin() {
   _on = false;
   _last_dir = 0;
   _lost_since = 0;
+  pid_reset();
 }
 
 void track_set(bool on) {
@@ -61,6 +107,7 @@ void track_set(bool on) {
     _last_dir = 0;
     _lost_since = 0;
   }
+  pid_reset();   // 开启时重新起跑，关闭时清掉残留状态，两种情况都不该带着旧积分继续算
 }
 
 bool track_is_on() {
@@ -97,6 +144,7 @@ void track_update() {
 
   if (lost) {
     if (_lost_since == 0) _lost_since = now;
+    pid_reset();   // 丢线期间不是连续跟踪，清掉积分/微分历史，避免重新压线后带着丢线期间的误差冲一把
     if (now - _lost_since > LOST_TIMEOUT_MS) {
       pwm_l = 0;
       pwm_r = 0;
@@ -111,6 +159,27 @@ void track_update() {
   } else if (cross) {
     _lost_since = 0;
     mode = "CROSS";   // 十字路口/宽线，直行穿过，不更新_last_dir
+  } else if (_algo == TRACK_ALGO_PID) {
+    _lost_since = 0;
+    // 误差=加权位置，setpoint=0（居中）；正=线偏右，需要向右修正（左轮加速/右轮减速）
+    float error = sensor_position_from(is_white);
+    unsigned long dt_ms = (_pid_last_ms == 0) ? DEBUG_INTERVAL_MS : (now - _pid_last_ms);
+    float dt = dt_ms > 0 ? dt_ms / 1000.0f : 0.001f;
+    _pid_last_ms = now;
+
+    _pid_integral += error * dt;
+    if (_pid_integral > PID_INTEGRAL_CLAMP) _pid_integral = PID_INTEGRAL_CLAMP;
+    if (_pid_integral < -PID_INTEGRAL_CLAMP) _pid_integral = -PID_INTEGRAL_CLAMP;
+
+    float derivative = (error - _pid_last_error) / dt;
+    _pid_last_error = error;
+
+    float output = _pid_kp * error + _pid_ki * _pid_integral + _pid_kd * derivative;
+    pwm_l = clamp_pwm(base + (int)output);
+    pwm_r = clamp_pwm(base - (int)output);
+    mode = "PID";
+    if (error > 0.0f) _last_dir = 1;
+    else if (error < 0.0f) _last_dir = -1;
   } else {
     _lost_since = 0;
     if (sharp_l) {
@@ -138,18 +207,30 @@ void track_update() {
   motor_set(pwm_l, pwm_r);
 
   // 调试log：时间戳+5路W/B图案+判定模式+实际下发PWM，定位急弯失效用
+  // PID模式额外附上当前误差(E:)，方便实车调Kp/Ki/Kd时对照
   if (now - _last_dbg >= DEBUG_INTERVAL_MS) {
     _last_dbg = now;
-    char buf[96];
+    char buf[112];
     // 打印顺序按物理左→右排列（index 4→0），与实车左右保持一致
-    snprintf(buf, sizeof(buf), "T %6lu %c%c%c%c%c %-8s L:%4d R:%4d\r\n",
-             now,
-             is_white[4] ? 'W' : 'B',
-             is_white[3] ? 'W' : 'B',
-             is_white[2] ? 'W' : 'B',
-             is_white[1] ? 'W' : 'B',
-             is_white[0] ? 'W' : 'B',
-             mode, pwm_l, pwm_r);
+    if (_algo == TRACK_ALGO_PID) {
+      snprintf(buf, sizeof(buf), "T %6lu %c%c%c%c%c %-8s L:%4d R:%4d E:%+.2f\r\n",
+               now,
+               is_white[4] ? 'W' : 'B',
+               is_white[3] ? 'W' : 'B',
+               is_white[2] ? 'W' : 'B',
+               is_white[1] ? 'W' : 'B',
+               is_white[0] ? 'W' : 'B',
+               mode, pwm_l, pwm_r, _pid_last_error);
+    } else {
+      snprintf(buf, sizeof(buf), "T %6lu %c%c%c%c%c %-8s L:%4d R:%4d\r\n",
+               now,
+               is_white[4] ? 'W' : 'B',
+               is_white[3] ? 'W' : 'B',
+               is_white[2] ? 'W' : 'B',
+               is_white[1] ? 'W' : 'B',
+               is_white[0] ? 'W' : 'B',
+               mode, pwm_l, pwm_r);
+    }
     out(buf);
   }
 }

@@ -35,10 +35,9 @@ void sensor_set_threshold(int index, int value) {
 
 // 加权位置：传感器索引0~4，中心为2，归一化到-1~+1
 // 传感器物理反装（180°翻转）：index 0(CH2)现在在右侧，符号取反使-1仍代表物理最左
-float sensor_position() {
-  bool is_white[SENSOR_COUNT];
-  sensor_binary(is_white);
-
+// 纯函数版本：接收调用方已采样好的is_white[]，不重新读ADC
+// （给track_module的PID模式用，避免同一个loop周期里对5路重复采样两次）
+float sensor_position_from(const bool is_white[SENSOR_COUNT]) {
   int sum = 0, count = 0;
   for (int i = 0; i < SENSOR_COUNT; i++) {
     if (is_white[i]) {
@@ -48,4 +47,10 @@ float sensor_position() {
   }
   if (count == 0) return NAN;          // 丢线
   return (2 - sum / (float)count) / 2; // 归一化：中心=0，符号反转对应物理反装
+}
+
+float sensor_position() {
+  bool is_white[SENSOR_COUNT];
+  sensor_binary(is_white);
+  return sensor_position_from(is_white);
 }

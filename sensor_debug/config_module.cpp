@@ -21,7 +21,7 @@ void config_begin() {
   File f = LittleFS.open(CONFIG_FILE, "r");
   if (!f) return;
 
-  StaticJsonDocument<256> doc;
+  StaticJsonDocument<384> doc;
   DeserializationError err = deserializeJson(doc, f);
   f.close();
   if (err) return;
@@ -29,6 +29,10 @@ void config_begin() {
   _speed = doc["speed"] | DEFAULT_SPEED;
   track_set_turn_ratio(doc["turn_ratio"] | track_get_turn_ratio());
   track_set_sharp_ratio(doc["sharp_ratio"] | track_get_sharp_ratio());
+  track_set_algo(doc["algo"] | track_get_algo());
+  track_set_pid_kp(doc["pid_kp"] | track_get_pid_kp());
+  track_set_pid_ki(doc["pid_ki"] | track_get_pid_ki());
+  track_set_pid_kd(doc["pid_kd"] | track_get_pid_kd());
 
   JsonArray arr = doc["threshold"];
   if (!arr.isNull()) {
@@ -50,10 +54,14 @@ void config_set_speed(int level) {
 }
 
 void config_save() {
-  StaticJsonDocument<256> doc;
+  StaticJsonDocument<384> doc;
   doc["speed"] = _speed;
   doc["turn_ratio"] = track_get_turn_ratio();
   doc["sharp_ratio"] = track_get_sharp_ratio();
+  doc["algo"] = track_get_algo();
+  doc["pid_kp"] = track_get_pid_kp();
+  doc["pid_ki"] = track_get_pid_ki();
+  doc["pid_kd"] = track_get_pid_kd();
 
   JsonArray arr = doc.createNestedArray("threshold");
   for (int i = 0; i < SENSOR_COUNT; i++) {
@@ -68,17 +76,21 @@ void config_save() {
 }
 
 void config_print() {
-  StaticJsonDocument<256> doc;
+  StaticJsonDocument<384> doc;
   doc["speed"] = _speed;
   doc["turn_ratio"] = track_get_turn_ratio();
   doc["sharp_ratio"] = track_get_sharp_ratio();
+  doc["algo"] = track_get_algo();
+  doc["pid_kp"] = track_get_pid_kp();
+  doc["pid_ki"] = track_get_pid_ki();
+  doc["pid_kd"] = track_get_pid_kd();
 
   JsonArray arr = doc.createNestedArray("threshold");
   for (int i = 0; i < SENSOR_COUNT; i++) {
     arr.add(sensor_get_threshold(i));
   }
 
-  char buf[192];
+  char buf[256];
   serializeJson(doc, buf, sizeof(buf));
 
   Serial.print(buf);
