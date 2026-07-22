@@ -35,6 +35,12 @@ static void handle_command(const char* cmd) {
   } else if (strcmp(cmd, "print bt off") == 0) {
     print_set_bt(false);
     reply(">>> BT print OFF\r\n");
+  } else if (strcmp(cmd, "print file on") == 0) {
+    print_set_file(true);
+    reply(">>> File log ON (/track.log)\r\n");
+  } else if (strcmp(cmd, "print file off") == 0) {
+    print_set_file(false);
+    reply(">>> File log OFF\r\n");
   } else if (strcmp(cmd, "print on") == 0) {
     print_set_usb(true);
     print_set_bt(true);
@@ -146,6 +152,18 @@ static void handle_command(const char* cmd) {
   } else if (strcmp(cmd, "config") == 0) {
     config_print();
 
+  // --- log dump/clear/status (Flash文件log，配合print file on使用) ---
+  } else if (strcmp(cmd, "log dump") == 0) {
+    print_file_dump();
+  } else if (strcmp(cmd, "log clear") == 0) {
+    print_file_clear();
+    reply(">>> Log file cleared\r\n");
+  } else if (strcmp(cmd, "log status") == 0) {
+    char buf[64];
+    snprintf(buf, sizeof(buf), ">>> File log %s, size %ld bytes\r\n",
+             print_file_enabled() ? "ON" : "OFF", print_file_size());
+    reply(buf);
+
   // --- threshold CH VALUE ---
   } else if (strncmp(cmd, "threshold ", 10) == 0) {
     int ch, value;
@@ -232,6 +250,7 @@ static void handle_command(const char* cmd) {
     reply("    print on/off         USB+BT data stream on/off\r\n");
     reply("    print usb on/off     USB data stream only\r\n");
     reply("    print bt  on/off     BT  data stream only\r\n");
+    reply("    print file on/off    log data stream to /track.log flash file (for when BT drops)\r\n");
     reply("    go N                 forward N sec (1~60)\r\n");
     reply("    back N               backward N sec (1~60)\r\n");
     reply("    spin left N          spin in place left N sec (1~60)\r\n");
@@ -245,8 +264,11 @@ static void handle_command(const char* cmd) {
     reply("    pid kp N             PID proportional gain (float, default 40.0)\r\n");
     reply("    pid ki N             PID integral gain (float, default 0.0)\r\n");
     reply("    pid kd N             PID derivative gain (float, default 5.0)\r\n");
-    reply("    save                 save speed+turnspeed+sharpratio+algo+pid gains+thresholds to flash (/config.json)\r\n");
+    reply("    save                 save speed+turnspeed+sharpratio+algo+pid gains+file log on/off+thresholds to flash (/config.json)\r\n");
     reply("    config               print current config as JSON\r\n");
+    reply("    log dump             print /track.log contents over Serial (USB)\r\n");
+    reply("    log clear            delete /track.log\r\n");
+    reply("    log status           show whether file log is on and current size\r\n");
     reply("    threshold CH VALUE   set CHx (2~6) threshold, memory only\r\n");
     reply("    help                 show this help\r\n");
 

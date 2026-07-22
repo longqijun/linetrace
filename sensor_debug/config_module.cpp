@@ -1,6 +1,7 @@
 #include "config_module.h"
 #include "sensor_module.h"
 #include "track_module.h"
+#include "print_module.h"
 #include "bt_module.h"
 #include <Arduino.h>
 #include <LittleFS.h>
@@ -33,6 +34,7 @@ void config_begin() {
   track_set_pid_kp(doc["pid_kp"] | track_get_pid_kp());
   track_set_pid_ki(doc["pid_ki"] | track_get_pid_ki());
   track_set_pid_kd(doc["pid_kd"] | track_get_pid_kd());
+  print_set_file(doc["file_log"] | print_file_enabled());
 
   JsonArray arr = doc["threshold"];
   if (!arr.isNull()) {
@@ -62,6 +64,7 @@ void config_save() {
   doc["pid_kp"] = track_get_pid_kp();
   doc["pid_ki"] = track_get_pid_ki();
   doc["pid_kd"] = track_get_pid_kd();
+  doc["file_log"] = print_file_enabled();
 
   JsonArray arr = doc.createNestedArray("threshold");
   for (int i = 0; i < SENSOR_COUNT; i++) {
@@ -84,6 +87,7 @@ void config_print() {
   doc["pid_kp"] = track_get_pid_kp();
   doc["pid_ki"] = track_get_pid_ki();
   doc["pid_kd"] = track_get_pid_kd();
+  doc["file_log"] = print_file_enabled();
 
   JsonArray arr = doc.createNestedArray("threshold");
   for (int i = 0; i < SENSOR_COUNT; i++) {

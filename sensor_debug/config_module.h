@@ -1,9 +1,9 @@
 #pragma once
 
 // LittleFS + JSON 配置持久化：速度档位 + 急弯外轮速度比例 + 急弯内轮反转比例
-// + 巡线算法选择(bangbang/pid) + PID三个增益 + 5路传感器阈值
+// + 巡线算法选择(bangbang/pid) + PID三个增益 + 文件log开关 + 5路传感器阈值
 // json中无该字段/文件不存在时，使用默认值（速度12，急弯外轮比例0.65，急弯内轮反转比例-0.3，
-// 算法默认bangbang，PID增益Kp40/Ki0/Kd5，阈值为sensor_module内置默认值）
+// 算法默认bangbang，PID增益Kp40/Ki0/Kd5，文件log默认关闭，阈值为sensor_module内置默认值）
 
 void config_begin();             // 挂载LittleFS，从/config.json加载配置（失败则用默认值）
 int  config_get_speed();         // 获取当前速度档位(1~40)
