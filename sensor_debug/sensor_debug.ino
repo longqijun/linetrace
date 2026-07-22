@@ -12,7 +12,9 @@ const int LED_PIN = 2;
 const int BUTTON_PIN = 0;  // Boot按钮，按下=低电平，用作track on/off物理开关
 int count = 0;
 bool last_button_state = HIGH;
-unsigned long last_bt_check = 0;  // BT连接状态每秒打印一次，排查连接问题用
+// -1=尚未打印过初始状态，之后正常存0/1；开机后先打印一次当前状态，
+// 之后只在状态变化时打印，避免"一直未连接"时每秒刷屏
+int last_bt_state = -1;
 
 void setup() {
   WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);
@@ -40,13 +42,10 @@ void setup() {
 void loop() {
   bool bt_now_connected = bt_connected();
   digitalWrite(LED_PIN, bt_now_connected ? HIGH : LOW);
-  if (millis() - last_bt_check >= 1000) {
-    last_bt_check = millis();
-    if (bt_now_connected) {
-      Serial.println("BT connected");
-    } else {
-      Serial.println("ERROR: BT not connected");
-    }
+  int bt_state = bt_now_connected ? 1 : 0;
+  if (bt_state != last_bt_state) {
+    last_bt_state = bt_state;
+    Serial.println(bt_now_connected ? "BT connected" : "ERROR: BT not connected");
   }
 
   cmd_poll();
