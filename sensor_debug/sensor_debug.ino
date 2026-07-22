@@ -12,6 +12,7 @@ const int LED_PIN = 2;
 const int BUTTON_PIN = 0;  // Boot按钮，按下=低电平，用作track on/off物理开关
 int count = 0;
 bool last_button_state = HIGH;
+unsigned long last_bt_check = 0;  // BT连接状态每秒打印一次，排查连接问题用
 
 void setup() {
   WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);
@@ -26,6 +27,7 @@ void setup() {
   config_begin();   // 从/config.json加载速度档位和传感器阈值（无文件/无字段则用默认值）
   track_begin();
   bt_begin("LineTrace");
+  Serial.println("BT started: LineTrace");
 
   // 阈值提示走 reply 路径（始终可见）
   Serial.println("Boot complete. Type help for commands");
@@ -36,7 +38,16 @@ void setup() {
 }
 
 void loop() {
-  digitalWrite(LED_PIN, bt_connected() ? HIGH : LOW);
+  bool bt_now_connected = bt_connected();
+  digitalWrite(LED_PIN, bt_now_connected ? HIGH : LOW);
+  if (millis() - last_bt_check >= 1000) {
+    last_bt_check = millis();
+    if (bt_now_connected) {
+      Serial.println("BT connected");
+    } else {
+      Serial.println("ERROR: BT not connected");
+    }
+  }
 
   cmd_poll();
 
