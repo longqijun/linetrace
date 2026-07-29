@@ -101,6 +101,30 @@ static void handle_command(const char* cmd) {
       reply(buf);
     }
 
+  // --- mediumratio N (中转内轮速度比例，百分比0~100，介于mild和sharp之间) ---
+  } else if (strncmp(cmd, "mediumratio ", 12) == 0) {
+    int pct = atoi(cmd + 12);
+    if (pct < 0 || pct > 100) {
+      reply(">>> Medium ratio range 0~100\r\n");
+    } else {
+      track_set_medium_ratio(pct / 100.0f);
+      char buf[80];
+      snprintf(buf, sizeof(buf), ">>> Medium ratio set to %d%% (inner wheel speed on medium turn)\r\n", pct);
+      reply(buf);
+    }
+
+  // --- xsharpratio N (发卡弯内轮反转比例，百分比0~100，内部转成负值，比sharp更激进) ---
+  } else if (strncmp(cmd, "xsharpratio ", 12) == 0) {
+    int pct = atoi(cmd + 12);
+    if (pct < 0 || pct > 100) {
+      reply(">>> Xsharp ratio range 0~100\r\n");
+    } else {
+      track_set_xsharp_ratio(-pct / 100.0f);
+      char buf[80];
+      snprintf(buf, sizeof(buf), ">>> Xsharp ratio set to -%d%% (inner wheel reverse on hairpin turn)\r\n", pct);
+      reply(buf);
+    }
+
   // --- algo bangbang/pid ---
   } else if (strcmp(cmd, "algo bangbang") == 0) {
     track_set_algo(TRACK_ALGO_BANGBANG);
@@ -177,13 +201,13 @@ static void handle_command(const char* cmd) {
              print_file_wrapped() ? ", 已绕回过(最老的记录已被覆盖)" : ", 未绕回(尚未写满一圈)");
     reply(buf);
 
-  // --- threshold CH VALUE ---
+  // --- threshold CH VALUE (8路方案：CH1~CH8，见"8路传感器方案.md") ---
   } else if (strncmp(cmd, "threshold ", 10) == 0) {
     int ch, value;
-    if (sscanf(cmd + 10, "%d %d", &ch, &value) != 2 || ch < 2 || ch > 6) {
-      reply(">>> Usage: threshold CH VALUE (CH=2~6)\r\n");
+    if (sscanf(cmd + 10, "%d %d", &ch, &value) != 2 || ch < 1 || ch > 8) {
+      reply(">>> Usage: threshold CH VALUE (CH=1~8)\r\n");
     } else {
-      sensor_set_threshold(ch - 2, value);
+      sensor_set_threshold(ch - 1, value);
       char buf[64];
       snprintf(buf, sizeof(buf), ">>> CH%d threshold set to %d (memory only, use save to persist)\r\n",
                ch, value);
@@ -271,19 +295,21 @@ static void handle_command(const char* cmd) {
     reply("    stop                 stop motor immediately (also cancels track)\r\n");
     reply("    track on/off         start/stop autonomous line tracking\r\n");
     reply("    speed N              speed level (1~40, default 12, until changed)\r\n");
-    reply("    turnspeed N          outer wheel ratio on sharp turn (0~100%, default 65)\r\n");
-    reply("    sharpratio N         inner wheel reverse ratio on sharp turn (0~100%, default 30)\r\n");
+    reply("    turnspeed N          outer wheel ratio on sharp/hairpin turn (0~100%, default 65)\r\n");
+    reply("    mediumratio N        inner wheel speed on medium turn CH3/CH6 (0~100%, default 35)\r\n");
+    reply("    sharpratio N         inner wheel reverse ratio on sharp turn CH2/CH7 (0~100%, default 30)\r\n");
+    reply("    xsharpratio N        inner wheel reverse ratio on hairpin turn CH1/CH8 (0~100%, default 60)\r\n");
     reply("    algo bangbang/pid    select track algorithm (default bangbang)\r\n");
     reply("    pid kp N             PID proportional gain (float, default 40.0)\r\n");
     reply("    pid ki N             PID integral gain (float, default 0.0)\r\n");
     reply("    pid kd N             PID derivative gain (float, default 5.0)\r\n");
     reply("    slewrate N           max PWM change per second (float, default 800, smaller = smoother/less zigzag)\r\n");
-    reply("    save                 save speed+turnspeed+sharpratio+algo+pid gains+slewrate+file log on/off+thresholds to flash (/config.json)\r\n");
+    reply("    save                 save speed+turnspeed+mediumratio+sharpratio+xsharpratio+algo+pid gains+slewrate+file log on/off+thresholds to flash (/config.json)\r\n");
     reply("    config               print current config as JSON\r\n");
     reply("    log dump             print /track.log.0~3 segments over Serial (USB), lines prefixed #ID\r\n");
     reply("    log clear            wipe all /track.log.* segments, #ID resets to 0\r\n");
     reply("    log status           show whether file log is on, capacity, next #ID, wrapped y/n\r\n");
-    reply("    threshold CH VALUE   set CHx (2~6) threshold, memory only\r\n");
+    reply("    threshold CH VALUE   set CHx (1~8) threshold, memory only\r\n");
     reply("    help                 show this help\r\n");
 
   } else {

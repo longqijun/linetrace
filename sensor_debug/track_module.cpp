@@ -7,12 +7,22 @@
 #include <stdio.h>
 #include <math.h>
 
-// 差速转向：CH3/CH5触发的缓转，内侧轮减速比例（0.0~1.0），越小转向越急
+// 8路传感器扩展后的4级差速bang-bang（见"8路传感器方案.md"）：
+// CH4/CH5缓转(mild) < CH3/CH6中转(medium) < CH2/CH7急转(sharp) < CH1/CH8发卡弯(hairpin)
+// 由外到内依次判定，命中最外层就不再看内层
+
+// CH4/CH5触发的缓转，内侧轮减速比例（0.0~1.0），越小转向越急
 #define TURN_RATIO_MILD  0.7f
-// CH2/CH6触发的急转，内侧轮反转比例（负值=反转），用于R70这类极小半径弯，需实车试调
+// CH3/CH6触发的中转（新增，介于mild和sharp之间），内侧轮减速比例（不反转），纯起调猜测未实车验证
+// 默认值，运行时可通过mediumratio命令调整（供config_module持久化用）
+#define TURN_RATIO_MEDIUM_DEFAULT 0.35f
+// CH2/CH7触发的急转，内侧轮反转比例（负值=反转），用于R70这类极小半径弯，需实车试调
 // 默认值，运行时可通过sharpratio命令调整（供config_module持久化用）
 #define TURN_RATIO_SHARP_DEFAULT (-0.3f)
-// 急弯时外轮速度比例（占base的百分比，0.0~1.0，运行时可调，默认值仅为起调参考）
+// CH1/CH8触发的发卡弯（新增，比sharp更激进的反转），内侧轮反转比例，纯起调猜测未实车验证
+// 默认值，运行时可通过xsharpratio命令调整（供config_module持久化用）
+#define TURN_RATIO_XSHARP_DEFAULT (-0.6f)
+// 急弯（sharp/hairpin共用）时外轮速度比例（占base的百分比，0.0~1.0，运行时可调，默认值仅为起调参考）
 // 目的：急弯只反转内轮、外轮仍全速时车身带着直道动能冲进弯道容易冲出赛道，
 // 外轮同步降速能减少入弯动能，配合内轮反转更容易在R70内掉头
 #define TURN_OUTER_RATIO_DEFAULT 0.65f
@@ -52,6 +62,8 @@ static int _last_dir = 0;          // -1=上次左转  0=无记录  +1=上次右
 static unsigned long _lost_since = 0;
 static float _turn_outer_ratio = TURN_OUTER_RATIO_DEFAULT;
 static float _sharp_ratio = TURN_RATIO_SHARP_DEFAULT;
+static float _medium_ratio = TURN_RATIO_MEDIUM_DEFAULT;
+static float _xsharp_ratio = TURN_RATIO_XSHARP_DEFAULT;
 
 static int _algo = TRACK_ALGO_BANGBANG;
 static float _pid_kp = PID_KP_DEFAULT;
@@ -131,6 +143,26 @@ void track_set_sharp_ratio(float ratio) {
   _sharp_ratio = ratio;
 }
 
+float track_get_medium_ratio() {
+  return _medium_ratio;
+}
+
+void track_set_medium_ratio(float ratio) {
+  if (ratio < 0.0f) ratio = 0.0f;
+  if (ratio > 1.0f) ratio = 1.0f;
+  _medium_ratio = ratio;
+}
+
+float track_get_xsharp_ratio() {
+  return _xsharp_ratio;
+}
+
+void track_set_xsharp_ratio(float ratio) {
+  if (ratio < -1.0f) ratio = -1.0f;
+  if (ratio > 0.0f) ratio = 0.0f;
+  _xsharp_ratio = ratio;
+}
+
 int track_get_algo() {
   return _algo;
 }
@@ -174,13 +206,13 @@ void track_set(bool on) {
   // 所以单独给文件通道补一条，配合#ID可以准确定位一次track on~off覆盖的record范围。
   // ON时顺带记下当前算法和增益：T行本身不直接说"现在是哪个算法"（只能靠有没有E:字段间接猜），
   // 事后翻log时不用再去猜这一段测试跑的时候config是什么状态
-  char buf[96];
+  char buf[160];
   if (on && _algo == TRACK_ALGO_PID) {
     snprintf(buf, sizeof(buf), ">>> TRACK_ON t=%lu algo=PID speed=%d kp=%.2f ki=%.2f kd=%.2f\r\n",
              millis(), config_get_speed(), _pid_kp, _pid_ki, _pid_kd);
   } else if (on) {
-    snprintf(buf, sizeof(buf), ">>> TRACK_ON t=%lu algo=BANGBANG speed=%d turn_ratio=%.2f sharp_ratio=%.2f\r\n",
-             millis(), config_get_speed(), _turn_outer_ratio, _sharp_ratio);
+    snprintf(buf, sizeof(buf), ">>> TRACK_ON t=%lu algo=BANGBANG speed=%d turn_ratio=%.2f medium_ratio=%.2f sharp_ratio=%.2f xsharp_ratio=%.2f\r\n",
+             millis(), config_get_speed(), _turn_outer_ratio, _medium_ratio, _sharp_ratio, _xsharp_ratio);
   } else {
     snprintf(buf, sizeof(buf), ">>> TRACK_OFF t=%lu\r\n", millis());
   }
@@ -197,21 +229,31 @@ void track_update() {
   bool is_white[SENSOR_COUNT];
   sensor_binary(is_white);
 
-  // 5路顺序：CH2,CH3,CH4,CH5,CH6 → index 0~4
-  // 传感器物理反装（180°翻转）：index 0(CH2)现在在右侧，index 4(CH6)在左侧，center不受影响
-  bool sharp_l = is_white[4]; // CH6，物理左侧最外，急转
-  bool mild_l  = is_white[3]; // CH5，物理左侧，缓转
-  bool center  = is_white[2]; // CH4
-  bool mild_r  = is_white[1]; // CH3，物理右侧，缓转
-  bool sharp_r = is_white[0]; // CH2，物理右侧最外，急转
+  // 8路顺序：CH1,CH2,...,CH8 → index 0~7（见"8路传感器方案.md"第2、3节）
+  // 传感器物理反装（180°翻转）：index 0(CH1)现在在最右侧，index 7(CH8)在最左侧
+  // 物理左→右：CH8 CH7 CH6 CH5 | CH4 CH3 CH2 CH1
+  bool xsharp_l = is_white[7]; // CH8，物理左侧最外，发卡弯
+  bool sharp_l  = is_white[6]; // CH7，物理左侧，急转
+  bool medium_l = is_white[5]; // CH6，物理左侧，中转
+  bool mild_l   = is_white[4]; // CH5，物理左侧，缓转
+  bool mild_r   = is_white[3]; // CH4，物理右侧，缓转
+  bool medium_r = is_white[2]; // CH3，物理右侧，中转
+  bool sharp_r  = is_white[1]; // CH2，物理右侧，急转
+  bool xsharp_r = is_white[0]; // CH1，物理右侧最外，发卡弯
 
-  bool lost = !sharp_l && !mild_l && !center && !mild_r && !sharp_r;
-  // 十字路口/宽线：左右两侧同时压线，视为直行穿过，不触发转向
-  bool cross = (sharp_l || mild_l) && (sharp_r || mild_r);
+  bool lost = true;
+  for (int i = 0; i < SENSOR_COUNT; i++) if (is_white[i]) { lost = false; break; }
+  // 十字路口/宽线：左右两侧（各半，按物理左右映射）同时压线，视为直行穿过，不触发转向
+  bool left_any = false, right_any = false;
+  for (int i = 0; i < SENSOR_COUNT / 2; i++) if (is_white[i]) right_any = true;
+  for (int i = SENSOR_COUNT / 2; i < SENSOR_COUNT; i++) if (is_white[i]) left_any = true;
+  bool cross = left_any && right_any;
 
   int base = motor_level_to_pwm(config_get_speed());
-  int mild_turn  = (int)(base * TURN_RATIO_MILD);
-  int sharp_turn = (int)(base * _sharp_ratio);
+  int mild_turn   = (int)(base * TURN_RATIO_MILD);
+  int medium_turn = (int)(base * _medium_ratio);
+  int sharp_turn  = (int)(base * _sharp_ratio);
+  int xsharp_turn = (int)(base * _xsharp_ratio);
 
   int pwm_l = base;
   int pwm_r = base;
@@ -271,26 +313,45 @@ void track_update() {
     mode = "PID";
   } else {
     _lost_since = 0;
-    if (sharp_l) {
-      pwm_l = sharp_turn;   // CH6压线，急转（内轮反转）
+    // 由外到内依次判定，命中最外层就不再看内层（见"8路传感器方案.md"第4节）
+    if (xsharp_l) {
+      pwm_l = xsharp_turn;  // CH8压线，发卡弯（内轮反转，比sharp更激进）
+      pwm_r = (int)(base * _turn_outer_ratio);  // 外轮同步降速，减少入弯动能
+      mode = "HAIRPIN_L";
+      _last_dir = -1;
+    } else if (sharp_l) {
+      pwm_l = sharp_turn;   // CH7压线，急转（内轮反转）
       pwm_r = (int)(base * _turn_outer_ratio);  // 外轮同步降速，减少入弯动能
       mode = "SHARP_L";
+      _last_dir = -1;
+    } else if (medium_l) {
+      pwm_l = medium_turn;  // CH6压线，中转（内轮减速，不反转）
+      mode = "MEDIUM_L";
       _last_dir = -1;
     } else if (mild_l) {
       pwm_l = mild_turn;    // CH5压线，缓转
       mode = "LEFT";
       _last_dir = -1;
+    } else if (xsharp_r) {
+      pwm_r = xsharp_turn;  // CH1压线，发卡弯（内轮反转，比sharp更激进）
+      pwm_l = (int)(base * _turn_outer_ratio);  // 外轮同步降速，减少入弯动能
+      mode = "HAIRPIN_R";
+      _last_dir = 1;
     } else if (sharp_r) {
       pwm_r = sharp_turn;   // CH2压线，急转（内轮反转）
       pwm_l = (int)(base * _turn_outer_ratio);  // 外轮同步降速，减少入弯动能
       mode = "SHARP_R";
       _last_dir = 1;
+    } else if (medium_r) {
+      pwm_r = medium_turn;  // CH3压线，中转（内轮减速，不反转）
+      mode = "MEDIUM_R";
+      _last_dir = 1;
     } else if (mild_r) {
-      pwm_r = mild_turn;    // CH3压线，缓转
+      pwm_r = mild_turn;    // CH4压线，缓转
       mode = "RIGHT";
       _last_dir = 1;
     }
-    // CH4单独压线：直行，不更新_last_dir
+    // 都不命中（全黑或中间对同时压线）：直行，不更新_last_dir
   }
 
   // PWM限速：把目标值平滑逼近，压住bang-bang/PID在检测边界附近来回穿越时的硬摇摆。
@@ -306,15 +367,18 @@ void track_update() {
 
   motor_set(pwm_l, pwm_r);
 
-  // 调试log：时间戳+5路W/B图案+判定模式+实际下发PWM，定位急弯失效用
+  // 调试log：时间戳+8路W/B图案+判定模式+实际下发PWM，定位急弯失效用
   // PID模式额外附上当前误差(E:)，方便实车调Kp/Ki/Kd时对照
   if (now - _last_dbg >= DEBUG_INTERVAL_MS) {
     _last_dbg = now;
-    char buf[112];
-    // 打印顺序按物理左→右排列（index 4→0），与实车左右保持一致
+    char buf[128];
+    // 打印顺序按物理左→右排列（index 7→0，即CH8..CH1），与实车左右保持一致
     if (_algo == TRACK_ALGO_PID) {
-      snprintf(buf, sizeof(buf), "T %6lu %c%c%c%c%c %-8s L:%4d R:%4d E:%+.2f\r\n",
+      snprintf(buf, sizeof(buf), "T %6lu %c%c%c%c%c%c%c%c %-9s L:%4d R:%4d E:%+.2f\r\n",
                now,
+               is_white[7] ? 'W' : 'B',
+               is_white[6] ? 'W' : 'B',
+               is_white[5] ? 'W' : 'B',
                is_white[4] ? 'W' : 'B',
                is_white[3] ? 'W' : 'B',
                is_white[2] ? 'W' : 'B',
@@ -322,8 +386,11 @@ void track_update() {
                is_white[0] ? 'W' : 'B',
                mode, pwm_l, pwm_r, _pid_last_error);
     } else {
-      snprintf(buf, sizeof(buf), "T %6lu %c%c%c%c%c %-8s L:%4d R:%4d\r\n",
+      snprintf(buf, sizeof(buf), "T %6lu %c%c%c%c%c%c%c%c %-9s L:%4d R:%4d\r\n",
                now,
+               is_white[7] ? 'W' : 'B',
+               is_white[6] ? 'W' : 'B',
+               is_white[5] ? 'W' : 'B',
                is_white[4] ? 'W' : 'B',
                is_white[3] ? 'W' : 'B',
                is_white[2] ? 'W' : 'B',

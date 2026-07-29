@@ -99,14 +99,18 @@ void loop() {
     float pos = sensor_position();
 
     count++;
-    char buf[96];
-    snprintf(buf, sizeof(buf), "[%d] %4d%c %4d%c %4d%c %4d%c %4d%c  pos:%.2f\r\n",
+    char buf[160];
+    // 打印顺序按物理左→右排列（index 7→0，即CH8..CH1），跟track_module.cpp的T行保持一致
+    snprintf(buf, sizeof(buf), "[%d] %4d%c %4d%c %4d%c %4d%c %4d%c %4d%c %4d%c %4d%c  pos:%.2f\r\n",
              count,
-             vals[0], is_white[0]?'W':'B',
-             vals[1], is_white[1]?'W':'B',
-             vals[2], is_white[2]?'W':'B',
-             vals[3], is_white[3]?'W':'B',
+             vals[7], is_white[7]?'W':'B',
+             vals[6], is_white[6]?'W':'B',
+             vals[5], is_white[5]?'W':'B',
              vals[4], is_white[4]?'W':'B',
+             vals[3], is_white[3]?'W':'B',
+             vals[2], is_white[2]?'W':'B',
+             vals[1], is_white[1]?'W':'B',
+             vals[0], is_white[0]?'W':'B',
              isnan(pos) ? 0.0f : pos);
     out(buf);  // 受 print_module 控制，默认不输出
   }

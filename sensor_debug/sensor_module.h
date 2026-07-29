@@ -1,9 +1,10 @@
 #pragma once
 
-// 5路传感器：CH2~CH6，引脚 D33/D34/D35/VP(36)/VN(39)
+// 8路传感器：CH1~CH8，引脚 D32/D33/D34/D35/VP(36)/VN(39)/D13/D14
 // 白色=低值，黑色=高值（NPN光电晶体管 active-low 特性）
+// CH7/CH8是ADC2，BT关闭前会跟BT/WiFi冲突读数出错，现在BT已关闭可以正常使用
 
-#define SENSOR_COUNT 5
+#define SENSOR_COUNT 8
 
 void sensor_begin();
 void sensor_read(int values[SENSOR_COUNT]);           // 原始ADC值

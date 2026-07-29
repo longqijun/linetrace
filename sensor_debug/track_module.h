@@ -1,7 +1,8 @@
 #pragma once
 
 // 自动巡线，两种算法并列，运行时可切换（默认BANGBANG）：
-//   TRACK_ALGO_BANGBANG：三级差速bang-bang，CH4主力压线，CH3/CH5缓转，CH2/CH6急转
+//   TRACK_ALGO_BANGBANG：四级差速bang-bang（8路传感器扩展后，见"8路传感器方案.md"）：
+//     CH4/CH5缓转(mild)，CH3/CH6中转(medium，新增)，CH2/CH7急转(sharp)，CH1/CH8发卡弯(hairpin，新增)
 //   TRACK_ALGO_PID：连续加权位置(sensor_position_from)作误差输入的PID闭环差速
 // 丢线延续方向找线、十字路口/宽线直行穿过这两个行为，两种算法共用同一套判定，不受算法切换影响
 
@@ -18,6 +19,12 @@ void  track_set_turn_ratio(float ratio); // 设置急弯外轮速度比例（仅
 
 float track_get_sharp_ratio();          // 获取急弯内轮反转比例(-1.0~0.0)，占base的百分比
 void  track_set_sharp_ratio(float ratio); // 设置急弯内轮反转比例（仅内存，供config_module持久化用）
+
+float track_get_medium_ratio();          // 获取中转(CH3/CH6)内轮速度比例(0.0~1.0)，介于mild和sharp之间
+void  track_set_medium_ratio(float ratio); // 设置中转内轮速度比例（仅内存，供config_module持久化用）
+
+float track_get_xsharp_ratio();          // 获取发卡弯(CH1/CH8)内轮反转比例(-1.0~0.0)，比sharp更激进
+void  track_set_xsharp_ratio(float ratio); // 设置发卡弯内轮反转比例（仅内存，供config_module持久化用）
 
 int  track_get_algo();       // 获取当前算法（TRACK_ALGO_BANGBANG/TRACK_ALGO_PID）
 void track_set_algo(int algo); // 设置算法，非法值回落到BANGBANG（仅内存，供config_module持久化用）

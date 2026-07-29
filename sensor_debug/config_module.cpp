@@ -22,14 +22,16 @@ void config_begin() {
   File f = LittleFS.open(CONFIG_FILE, "r");
   if (!f) return;
 
-  StaticJsonDocument<384> doc;
+  StaticJsonDocument<512> doc;
   DeserializationError err = deserializeJson(doc, f);
   f.close();
   if (err) return;
 
   _speed = doc["speed"] | DEFAULT_SPEED;
   track_set_turn_ratio(doc["turn_ratio"] | track_get_turn_ratio());
+  track_set_medium_ratio(doc["medium_ratio"] | track_get_medium_ratio());
   track_set_sharp_ratio(doc["sharp_ratio"] | track_get_sharp_ratio());
+  track_set_xsharp_ratio(doc["xsharp_ratio"] | track_get_xsharp_ratio());
   track_set_algo(doc["algo"] | track_get_algo());
   track_set_pid_kp(doc["pid_kp"] | track_get_pid_kp());
   track_set_pid_ki(doc["pid_ki"] | track_get_pid_ki());
@@ -57,10 +59,12 @@ void config_set_speed(int level) {
 }
 
 void config_save() {
-  StaticJsonDocument<384> doc;
+  StaticJsonDocument<512> doc;
   doc["speed"] = _speed;
   doc["turn_ratio"] = track_get_turn_ratio();
+  doc["medium_ratio"] = track_get_medium_ratio();
   doc["sharp_ratio"] = track_get_sharp_ratio();
+  doc["xsharp_ratio"] = track_get_xsharp_ratio();
   doc["algo"] = track_get_algo();
   doc["pid_kp"] = track_get_pid_kp();
   doc["pid_ki"] = track_get_pid_ki();
@@ -81,10 +85,12 @@ void config_save() {
 }
 
 void config_print() {
-  StaticJsonDocument<384> doc;
+  StaticJsonDocument<512> doc;
   doc["speed"] = _speed;
   doc["turn_ratio"] = track_get_turn_ratio();
+  doc["medium_ratio"] = track_get_medium_ratio();
   doc["sharp_ratio"] = track_get_sharp_ratio();
+  doc["xsharp_ratio"] = track_get_xsharp_ratio();
   doc["algo"] = track_get_algo();
   doc["pid_kp"] = track_get_pid_kp();
   doc["pid_ki"] = track_get_pid_ki();
@@ -97,7 +103,7 @@ void config_print() {
     arr.add(sensor_get_threshold(i));
   }
 
-  char buf[256];
+  char buf[320];
   serializeJson(doc, buf, sizeof(buf));
 
   Serial.print(buf);
