@@ -2,24 +2,29 @@
 #include "BluetoothSerial.h"
 
 static BluetoothSerial _bt;
+static bool _began = false;  // bt_begin()没被调用过时，其余函数直接短路返回，不碰_bt对象
 static char _line_buf[64];
 static int  _line_len = 0;
 
 void bt_begin(const char* name) {
   _bt.begin(name);
+  _began = true;
 }
 
 bool bt_connected() {
+  if (!_began) return false;
   return _bt.hasClient();
 }
 
 void bt_send(const char* msg) {
+  if (!_began) return;
   if (_bt.hasClient()) {
     _bt.print(msg);
   }
 }
 
 bool bt_poll_line(char* buf, int maxlen) {
+  if (!_began) return false;
   while (_bt.available()) {
     char c = (char)_bt.read();
 

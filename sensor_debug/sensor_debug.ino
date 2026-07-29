@@ -8,18 +8,23 @@
 #include "track_module.h"
 #include "cmd_module.h"
 
-const int LED_PIN = 2;
 const int BUTTON_PIN = 0;  // Boot按钮，按下=低电平，用作track on/off物理开关
 int count = 0;
 bool last_button_state = HIGH;
-// -1=尚未打印过初始状态，之后正常存0/1；开机后先打印一次当前状态，
-// 之后只在状态变化时打印，避免"一直未连接"时每秒刷屏
-int last_bt_state = -1;
+
+// loop()性能统计：每圈记一次耗时(micros()差值)，累计min/max/avg，每秒打印一次汇总后清零。
+// 开销只有一次micros()调用+几次比较/加法，跟analogRead()本身的耗时比可以忽略，
+// 不会影响巡线控制的实时性
+unsigned long loop_stat_last_us = 0;
+unsigned long loop_stat_count = 0;
+unsigned long loop_stat_sum_us = 0;
+unsigned long loop_stat_min_us = 0xFFFFFFFF;
+unsigned long loop_stat_max_us = 0;
+unsigned long loop_stat_last_print_ms = 0;
 
 void setup() {
   WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);
 
-  pinMode(LED_PIN, OUTPUT);
   pinMode(BUTTON_PIN, INPUT_PULLUP);
   Serial.begin(115200);
 
@@ -28,8 +33,11 @@ void setup() {
   motor_begin();
   config_begin();   // 从/config.json加载速度档位和传感器阈值（无文件/无字段则用默认值）
   track_begin();
-  bt_begin("LineTrace");
-  Serial.println("BT started: LineTrace");
+  // BT关闭：连接一直不稳定，反复诊断也没能根治，干脆不开BT模块，只用USB Serial
+  // （命令输入、log dump等全部功能USB本来就都支持，见cmd_module.cpp的cmd_poll()）。
+  // bt_module.cpp里其余函数在bt_begin()没被调用时都会直接短路返回，不需要额外改动
+  // 如果以后想恢复BT，取消下面这行注释即可：
+  // bt_begin("LineTrace");
 
   // 阈值提示走 reply 路径（始终可见）
   Serial.println("Boot complete. Type help for commands");
@@ -40,12 +48,28 @@ void setup() {
 }
 
 void loop() {
-  bool bt_now_connected = bt_connected();
-  digitalWrite(LED_PIN, bt_now_connected ? HIGH : LOW);
-  int bt_state = bt_now_connected ? 1 : 0;
-  if (bt_state != last_bt_state) {
-    last_bt_state = bt_state;
-    Serial.println(bt_now_connected ? "BT connected" : "ERROR: BT not connected");
+  // 测的是"上一圈loop()从开始到这一圈开始"的耗时，即上一圈的完整执行时间
+  unsigned long loop_now_us = micros();
+  if (loop_stat_last_us != 0) {
+    unsigned long dur_us = loop_now_us - loop_stat_last_us;
+    loop_stat_count++;
+    loop_stat_sum_us += dur_us;
+    if (dur_us < loop_stat_min_us) loop_stat_min_us = dur_us;
+    if (dur_us > loop_stat_max_us) loop_stat_max_us = dur_us;
+  }
+  loop_stat_last_us = loop_now_us;
+
+  unsigned long loop_stat_now_ms = millis();
+  if (loop_stat_now_ms - loop_stat_last_print_ms >= 1000 && loop_stat_count > 0) {
+    loop_stat_last_print_ms = loop_stat_now_ms;
+    char stat_buf[96];
+    snprintf(stat_buf, sizeof(stat_buf), "LOOP %lu/s avg=%luus min=%luus max=%luus\r\n",
+             loop_stat_count, loop_stat_sum_us / loop_stat_count, loop_stat_min_us, loop_stat_max_us);
+    out(stat_buf);  // 受print_module控制，默认不输出
+    loop_stat_count = 0;
+    loop_stat_sum_us = 0;
+    loop_stat_min_us = 0xFFFFFFFF;
+    loop_stat_max_us = 0;
   }
 
   cmd_poll();

@@ -5,6 +5,7 @@
 #include "print_module.h"
 #include <Arduino.h>
 #include <stdio.h>
+#include <math.h>
 
 // 差速转向：CH3/CH5触发的缓转，内侧轮减速比例（0.0~1.0），越小转向越急
 #define TURN_RATIO_MILD  0.7f
@@ -28,6 +29,22 @@
 #define PID_KD_DEFAULT 5.0f
 // 积分限幅，防止长时间小误差把积分项攒到失控（抗积分饱和），限幅值同样未实车验证
 #define PID_INTEGRAL_CLAMP 2.0f
+// PID计算周期(ms)，跟loop()本身的实际速度（实测约1ms一圈，见设计文档）解耦。
+// 传感器位置只有9档离散值，loop()多快就重算一次PID、多快就换一次电机PWM，
+// 对着一个离散信号在1ms尺度上求微分/频繁变更输出，本质是在放大传感器噪声，
+// 跟Kd是否为0无关（纯P也会跟着这个节奏抖）。固定周期后dt恒定，微分才有意义
+#define PID_INTERVAL_MS 10
+// 微分项一阶低通滤波系数（0~1，越小滤波越强/越迟钝）。
+// 误差是离散阶梯值，压线瞬间从一档跳到另一档时，未滤波的微分会在单个采样点上
+// 炸出远超真实变化率的尖峰（"微分冲击"），滤波把这个跳变摊到后面几个周期
+#define PID_DERIV_FILTER_ALPHA 0.3f
+
+// PWM限速：下发给电机的pwm_l/pwm_r每秒最多变化这么多单位（0~255量程），运行时可通过
+// slewrate命令调整。目的：bang-bang各档（STRAIGHT/mild/sharp）之间PWM差距很大且是硬跳变
+// （比如从base=102直接跳到sharp_turn=-40反转），车身在检测边界附近来回穿越时会跟着硬来回
+// 打，表现为"左右摇摆剧烈"；PID模式下也一样受益（模式切换/误差跳档时同样是硬跳变）。
+// 限速后目标PWM需要一点时间才能到位，把这种硬摇摆摊开、变平滑。数值越大越接近不限速。
+#define SLEW_RATE_DEFAULT 800.0f
 
 static bool _on = false;
 static unsigned long _last_dbg = 0;
@@ -41,13 +58,51 @@ static float _pid_kp = PID_KP_DEFAULT;
 static float _pid_ki = PID_KI_DEFAULT;
 static float _pid_kd = PID_KD_DEFAULT;
 static float _pid_integral = 0.0f;
-static float _pid_last_error = 0.0f;
-static unsigned long _pid_last_ms = 0;
+static float _pid_last_error = 0.0f;       // 上一次参与计算的误差（仅供debug打印+下次求导用）
+static float _pid_filtered_deriv = 0.0f;   // 低通滤波后的微分值
+static unsigned long _pid_last_ms = 0;     // 上一次真正重算PID的时刻，配合PID_INTERVAL_MS节流
+static int _pid_hold_output = 0;           // 上一次算出的差速修正量，未到计算周期时沿用，不跟着loop()抖
+
+static float _slew_rate = SLEW_RATE_DEFAULT;
+static float _slew_pwm_l = 0.0f;           // 限速后当前实际下发的pwm_l/r（浮点存，避免整数截断累积误差）
+static float _slew_pwm_r = 0.0f;
+static unsigned long _slew_last_ms = 0;    // 上一次做限速计算的时刻，用于算dt
 
 static void pid_reset() {
   _pid_integral = 0.0f;
   _pid_last_error = 0.0f;
+  _pid_filtered_deriv = 0.0f;
   _pid_last_ms = 0;
+  _pid_hold_output = 0;
+}
+
+static void slew_reset() {
+  _slew_pwm_l = 0.0f;
+  _slew_pwm_r = 0.0f;
+  _slew_last_ms = 0;
+}
+
+// 把target_l/target_r限速逼近，每次调用最多让当前值朝目标值移动
+// _slew_rate*dt个单位；dt是这次调用距上次调用的真实间隔（ms）
+static void slew_toward(int target_l, int target_r, int* out_l, int* out_r) {
+  unsigned long now = millis();
+  float dt = (_slew_last_ms == 0) ? 0.0f : (now - _slew_last_ms) / 1000.0f;
+  _slew_last_ms = now;
+
+  float max_step = _slew_rate * dt;
+
+  float diff_l = target_l - _slew_pwm_l;
+  if (diff_l > max_step) diff_l = max_step;
+  if (diff_l < -max_step) diff_l = -max_step;
+  _slew_pwm_l += diff_l;
+
+  float diff_r = target_r - _slew_pwm_r;
+  if (diff_r > max_step) diff_r = max_step;
+  if (diff_r < -max_step) diff_r = -max_step;
+  _slew_pwm_r += diff_r;
+
+  *out_l = (int)lroundf(_slew_pwm_l);
+  *out_r = (int)lroundf(_slew_pwm_r);
 }
 
 static int clamp_pwm(int v) {
@@ -93,11 +148,15 @@ void  track_set_pid_ki(float ki) { if (ki < 0.0f) ki = 0.0f; _pid_ki = ki; }
 float track_get_pid_kd() { return _pid_kd; }
 void  track_set_pid_kd(float kd) { if (kd < 0.0f) kd = 0.0f; _pid_kd = kd; }
 
+float track_get_slew_rate() { return _slew_rate; }
+void  track_set_slew_rate(float rate) { if (rate < 1.0f) rate = 1.0f; _slew_rate = rate; }
+
 void track_begin() {
   _on = false;
   _last_dir = 0;
   _lost_since = 0;
   pid_reset();
+  slew_reset();
 }
 
 void track_set(bool on) {
@@ -108,6 +167,7 @@ void track_set(bool on) {
     _lost_since = 0;
   }
   pid_reset();   // 开启时重新起跑，关闭时清掉残留状态，两种情况都不该带着旧积分继续算
+  slew_reset();  // 限速状态同样清零，避免开关之间残留的旧pwm值影响下一次起跑
 
   // 只写文件通道：命令/按钮各自已经通过reply()把ON/OFF提示发到USB+BT了，这里再走out()
   // 会重复；但track_update()关闭时完全不打印，file log里没有别的地方能留下OFF的痕迹，
@@ -156,6 +216,7 @@ void track_update() {
   int pwm_l = base;
   int pwm_r = base;
   const char* mode = "STRAIGHT";
+  bool stop_now = false;  // true时跳过限速直接停车（安全优先，丢线超时停车不该被限速拖慢）
 
   unsigned long now = millis();
 
@@ -166,6 +227,7 @@ void track_update() {
       pwm_l = 0;
       pwm_r = 0;
       mode = "LOST_STOP";
+      stop_now = true;
     } else if (_last_dir < 0) {
       pwm_l = sharp_turn;   // 延续上次左转方向找线
       mode = "LOST_L";
@@ -180,23 +242,33 @@ void track_update() {
     _lost_since = 0;
     // 误差=加权位置，setpoint=0（居中）；正=线偏右，需要向右修正（左轮加速/右轮减速）
     float error = sensor_position_from(is_white);
-    unsigned long dt_ms = (_pid_last_ms == 0) ? DEBUG_INTERVAL_MS : (now - _pid_last_ms);
-    float dt = dt_ms > 0 ? dt_ms / 1000.0f : 0.001f;
-    _pid_last_ms = now;
 
-    _pid_integral += error * dt;
-    if (_pid_integral > PID_INTEGRAL_CLAMP) _pid_integral = PID_INTEGRAL_CLAMP;
-    if (_pid_integral < -PID_INTEGRAL_CLAMP) _pid_integral = -PID_INTEGRAL_CLAMP;
+    // PID只按固定周期重算，中间这些loop沿用_pid_hold_output——
+    // 传感器位置只有9档离散值，跟着loop()裸奔重算等于在1ms尺度上对着一个台阶信号求导，
+    // 算出来的全是噪声放大，跟Kd是否为0无关。固定周期后dt恒定，微分才有意义
+    if (_pid_last_ms == 0 || now - _pid_last_ms >= PID_INTERVAL_MS) {
+      float dt = (_pid_last_ms == 0) ? (PID_INTERVAL_MS / 1000.0f) : (now - _pid_last_ms) / 1000.0f;
+      _pid_last_ms = now;
 
-    float derivative = (error - _pid_last_error) / dt;
-    _pid_last_error = error;
+      _pid_integral += error * dt;
+      if (_pid_integral > PID_INTEGRAL_CLAMP) _pid_integral = PID_INTEGRAL_CLAMP;
+      if (_pid_integral < -PID_INTEGRAL_CLAMP) _pid_integral = -PID_INTEGRAL_CLAMP;
 
-    float output = _pid_kp * error + _pid_ki * _pid_integral + _pid_kd * derivative;
-    pwm_l = clamp_pwm(base + (int)output);
-    pwm_r = clamp_pwm(base - (int)output);
+      float raw_derivative = (error - _pid_last_error) / dt;
+      _pid_last_error = error;
+      // 一阶低通滤波：把离散误差跳档瞬间产生的微分尖峰摊到后面几个周期，避免瞬间打满
+      _pid_filtered_deriv += PID_DERIV_FILTER_ALPHA * (raw_derivative - _pid_filtered_deriv);
+
+      float output = _pid_kp * error + _pid_ki * _pid_integral + _pid_kd * _pid_filtered_deriv;
+      _pid_hold_output = (int)lroundf(output);  // 四舍五入而非向零截断，小误差不会被直接吃成死区
+
+      if (error > 0.0f) _last_dir = 1;
+      else if (error < 0.0f) _last_dir = -1;
+    }
+
+    pwm_l = clamp_pwm(base + _pid_hold_output);
+    pwm_r = clamp_pwm(base - _pid_hold_output);
     mode = "PID";
-    if (error > 0.0f) _last_dir = 1;
-    else if (error < 0.0f) _last_dir = -1;
   } else {
     _lost_since = 0;
     if (sharp_l) {
@@ -219,6 +291,17 @@ void track_update() {
       _last_dir = 1;
     }
     // CH4单独压线：直行，不更新_last_dir
+  }
+
+  // PWM限速：把目标值平滑逼近，压住bang-bang/PID在检测边界附近来回穿越时的硬摇摆。
+  // stop_now（丢线超时停车）例外，安全优先，直接停，不走限速
+  if (stop_now) {
+    slew_reset();
+  } else {
+    int slewed_l, slewed_r;
+    slew_toward(pwm_l, pwm_r, &slewed_l, &slewed_r);
+    pwm_l = slewed_l;
+    pwm_r = slewed_r;
   }
 
   motor_set(pwm_l, pwm_r);

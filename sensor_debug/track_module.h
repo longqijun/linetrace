@@ -28,3 +28,6 @@ float track_get_pid_ki();          // 获取PID积分增益
 void  track_set_pid_ki(float ki);  // 设置PID积分增益（>=0，仅内存，供config_module持久化用）
 float track_get_pid_kd();          // 获取PID微分增益
 void  track_set_pid_kd(float kd);  // 设置PID微分增益（>=0，仅内存，供config_module持久化用）
+
+float track_get_slew_rate();          // 获取PWM限速值(单位/秒)，限制下发给电机的pwm_l/r每秒最多变化多少
+void  track_set_slew_rate(float rate); // 设置PWM限速值（>0，仅内存，供config_module持久化用）

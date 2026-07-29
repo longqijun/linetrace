@@ -37,7 +37,7 @@ static void handle_command(const char* cmd) {
     reply(">>> BT print OFF\r\n");
   } else if (strcmp(cmd, "print file on") == 0) {
     print_set_file(true);
-    reply(">>> File log ON (/track.log)\r\n");
+    reply(">>> File log ON (/track.log.0~3)\r\n");
   } else if (strcmp(cmd, "print file off") == 0) {
     print_set_file(false);
     reply(">>> File log OFF\r\n");
@@ -138,6 +138,18 @@ static void handle_command(const char* cmd) {
       track_set_pid_kd(v);
       char buf[48];
       snprintf(buf, sizeof(buf), ">>> PID Kd set to %.2f\r\n", v);
+      reply(buf);
+    }
+
+  // --- slewrate N (float, PWM每秒最多变化多少单位，越小越平滑) ---
+  } else if (strncmp(cmd, "slewrate ", 9) == 0) {
+    float v = atof(cmd + 9);
+    if (v < 1.0f) {
+      reply(">>> Slew rate must be >= 1\r\n");
+    } else {
+      track_set_slew_rate(v);
+      char buf[48];
+      snprintf(buf, sizeof(buf), ">>> Slew rate set to %.1f/s\r\n", v);
       reply(buf);
     }
 
@@ -251,7 +263,7 @@ static void handle_command(const char* cmd) {
     reply("    print on/off         USB+BT data stream on/off\r\n");
     reply("    print usb on/off     USB data stream only\r\n");
     reply("    print bt  on/off     BT  data stream only\r\n");
-    reply("    print file on/off    log data stream to /track.log flash file, ring buffer w/ #ID (for when BT drops)\r\n");
+    reply("    print file on/off    log data stream to /track.log.0~3 flash files, ring buffer w/ #ID (for when BT drops)\r\n");
     reply("    go N                 forward N sec (1~60)\r\n");
     reply("    back N               backward N sec (1~60)\r\n");
     reply("    spin left N          spin in place left N sec (1~60)\r\n");
@@ -265,10 +277,11 @@ static void handle_command(const char* cmd) {
     reply("    pid kp N             PID proportional gain (float, default 40.0)\r\n");
     reply("    pid ki N             PID integral gain (float, default 0.0)\r\n");
     reply("    pid kd N             PID derivative gain (float, default 5.0)\r\n");
-    reply("    save                 save speed+turnspeed+sharpratio+algo+pid gains+file log on/off+thresholds to flash (/config.json)\r\n");
+    reply("    slewrate N           max PWM change per second (float, default 800, smaller = smoother/less zigzag)\r\n");
+    reply("    save                 save speed+turnspeed+sharpratio+algo+pid gains+slewrate+file log on/off+thresholds to flash (/config.json)\r\n");
     reply("    config               print current config as JSON\r\n");
-    reply("    log dump             print /track.log ring buffer over Serial (USB), lines prefixed #ID\r\n");
-    reply("    log clear            wipe /track.log ring buffer, #ID resets to 0\r\n");
+    reply("    log dump             print /track.log.0~3 segments over Serial (USB), lines prefixed #ID\r\n");
+    reply("    log clear            wipe all /track.log.* segments, #ID resets to 0\r\n");
     reply("    log status           show whether file log is on, capacity, next #ID, wrapped y/n\r\n");
     reply("    threshold CH VALUE   set CHx (2~6) threshold, memory only\r\n");
     reply("    help                 show this help\r\n");
