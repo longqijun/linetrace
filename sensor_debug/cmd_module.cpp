@@ -159,9 +159,10 @@ static void handle_command(const char* cmd) {
     print_file_clear();
     reply(">>> Log file cleared\r\n");
   } else if (strcmp(cmd, "log status") == 0) {
-    char buf[64];
-    snprintf(buf, sizeof(buf), ">>> File log %s, size %ld bytes\r\n",
-             print_file_enabled() ? "ON" : "OFF", print_file_size());
+    char buf[96];
+    snprintf(buf, sizeof(buf), ">>> File log %s, capacity %ld bytes (ring buffer), next_id=%lu%s\r\n",
+             print_file_enabled() ? "ON" : "OFF", print_file_size(), print_file_next_id(),
+             print_file_wrapped() ? ", 已绕回过(最老的记录已被覆盖)" : ", 未绕回(尚未写满一圈)");
     reply(buf);
 
   // --- threshold CH VALUE ---
@@ -250,7 +251,7 @@ static void handle_command(const char* cmd) {
     reply("    print on/off         USB+BT data stream on/off\r\n");
     reply("    print usb on/off     USB data stream only\r\n");
     reply("    print bt  on/off     BT  data stream only\r\n");
-    reply("    print file on/off    log data stream to /track.log flash file (for when BT drops)\r\n");
+    reply("    print file on/off    log data stream to /track.log flash file, ring buffer w/ #ID (for when BT drops)\r\n");
     reply("    go N                 forward N sec (1~60)\r\n");
     reply("    back N               backward N sec (1~60)\r\n");
     reply("    spin left N          spin in place left N sec (1~60)\r\n");
@@ -266,9 +267,9 @@ static void handle_command(const char* cmd) {
     reply("    pid kd N             PID derivative gain (float, default 5.0)\r\n");
     reply("    save                 save speed+turnspeed+sharpratio+algo+pid gains+file log on/off+thresholds to flash (/config.json)\r\n");
     reply("    config               print current config as JSON\r\n");
-    reply("    log dump             print /track.log contents over Serial (USB)\r\n");
-    reply("    log clear            delete /track.log\r\n");
-    reply("    log status           show whether file log is on and current size\r\n");
+    reply("    log dump             print /track.log ring buffer over Serial (USB), lines prefixed #ID\r\n");
+    reply("    log clear            wipe /track.log ring buffer, #ID resets to 0\r\n");
+    reply("    log status           show whether file log is on, capacity, next #ID, wrapped y/n\r\n");
     reply("    threshold CH VALUE   set CHx (2~6) threshold, memory only\r\n");
     reply("    help                 show this help\r\n");
 

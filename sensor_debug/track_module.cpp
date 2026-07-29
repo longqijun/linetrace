@@ -7,7 +7,7 @@
 #include <stdio.h>
 
 // 差速转向：CH3/CH5触发的缓转，内侧轮减速比例（0.0~1.0），越小转向越急
-#define TURN_RATIO_MILD  0.5f
+#define TURN_RATIO_MILD  0.7f
 // CH2/CH6触发的急转，内侧轮反转比例（负值=反转），用于R70这类极小半径弯，需实车试调
 // 默认值，运行时可通过sharpratio命令调整（供config_module持久化用）
 #define TURN_RATIO_SHARP_DEFAULT (-0.3f)
@@ -108,6 +108,23 @@ void track_set(bool on) {
     _lost_since = 0;
   }
   pid_reset();   // 开启时重新起跑，关闭时清掉残留状态，两种情况都不该带着旧积分继续算
+
+  // 只写文件通道：命令/按钮各自已经通过reply()把ON/OFF提示发到USB+BT了，这里再走out()
+  // 会重复；但track_update()关闭时完全不打印，file log里没有别的地方能留下OFF的痕迹，
+  // 所以单独给文件通道补一条，配合#ID可以准确定位一次track on~off覆盖的record范围。
+  // ON时顺带记下当前算法和增益：T行本身不直接说"现在是哪个算法"（只能靠有没有E:字段间接猜），
+  // 事后翻log时不用再去猜这一段测试跑的时候config是什么状态
+  char buf[96];
+  if (on && _algo == TRACK_ALGO_PID) {
+    snprintf(buf, sizeof(buf), ">>> TRACK_ON t=%lu algo=PID speed=%d kp=%.2f ki=%.2f kd=%.2f\r\n",
+             millis(), config_get_speed(), _pid_kp, _pid_ki, _pid_kd);
+  } else if (on) {
+    snprintf(buf, sizeof(buf), ">>> TRACK_ON t=%lu algo=BANGBANG speed=%d turn_ratio=%.2f sharp_ratio=%.2f\r\n",
+             millis(), config_get_speed(), _turn_outer_ratio, _sharp_ratio);
+  } else {
+    snprintf(buf, sizeof(buf), ">>> TRACK_OFF t=%lu\r\n", millis());
+  }
+  out_file(buf);
 }
 
 bool track_is_on() {
