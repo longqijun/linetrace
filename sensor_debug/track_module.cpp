@@ -226,8 +226,12 @@ bool track_is_on() {
 void track_update() {
   if (!_on) return;
 
+  // 只读一次原始ADC值，二值判断和PID的模拟量加权都基于这份数据算，避免同一loop周期
+  // 对8路传感器重复采样两次
+  int vals[SENSOR_COUNT];
+  sensor_read(vals);
   bool is_white[SENSOR_COUNT];
-  sensor_binary(is_white);
+  sensor_binary_from(vals, is_white);
 
   // 8路顺序：CH1,CH2,...,CH8 → index 0~7（见"8路传感器方案.md"第2、3节）
   // 传感器物理反装（180°翻转）：index 0(CH1)现在在最右侧，index 7(CH8)在最左侧
@@ -282,11 +286,18 @@ void track_update() {
     mode = "CROSS";   // 十字路口/宽线，直行穿过，不更新_last_dir
   } else if (_algo == TRACK_ALGO_PID) {
     _lost_since = 0;
-    // 误差=加权位置，setpoint=0（居中）；正=线偏右，需要向右修正（左轮加速/右轮减速）
-    float error = sensor_position_from(is_white);
+    // 误差=模拟量加权位置（2026-07-29改用analog版本，见sensor_module.cpp的
+    // sensor_position_analog_from()），setpoint=0（居中）；正=线偏右，需要向右修正
+    // （左轮加速/右轮减速）。比原来基于is_white[]二值判断的离散阶梯值更接近连续量，
+    // 传感器实测是慢慢从~2000变到~600的，不是一下子跳变，模拟量加权更贴近真实物理过程
+    float error = sensor_position_analog_from(vals);
+    // 上面这行的丢线判定(权重和<0.3)跟外层的lost判定(is_white[]全黑)标准不完全一样，
+    // 理论上存在"is_white[]判断没丢线，但analog权重判断丢线"的边界情况，这里兜底成0
+    // （不修正，沿用上一次的_pid_hold_output），避免NAN进到后面的积分/微分运算里
+    if (isnan(error)) error = 0.0f;
 
     // PID只按固定周期重算，中间这些loop沿用_pid_hold_output——
-    // 传感器位置只有9档离散值，跟着loop()裸奔重算等于在1ms尺度上对着一个台阶信号求导，
+    // 传感器位置原来只有9档离散值，跟着loop()裸奔重算等于在1ms尺度上对着一个台阶信号求导，
     // 算出来的全是噪声放大，跟Kd是否为0无关。固定周期后dt恒定，微分才有意义
     if (_pid_last_ms == 0 || now - _pid_last_ms >= PID_INTERVAL_MS) {
       float dt = (_pid_last_ms == 0) ? (PID_INTERVAL_MS / 1000.0f) : (now - _pid_last_ms) / 1000.0f;

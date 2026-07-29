@@ -214,6 +214,30 @@ static void handle_command(const char* cmd) {
       reply(buf);
     }
 
+  // --- whiteref/blackref CH VALUE (PID模拟量加权用的白/黑参考值，CH=1~8) ---
+  } else if (strncmp(cmd, "whiteref ", 9) == 0) {
+    int ch, value;
+    if (sscanf(cmd + 9, "%d %d", &ch, &value) != 2 || ch < 1 || ch > 8) {
+      reply(">>> Usage: whiteref CH VALUE (CH=1~8)\r\n");
+    } else {
+      sensor_set_white_ref(ch - 1, value);
+      char buf[64];
+      snprintf(buf, sizeof(buf), ">>> CH%d white ref set to %d (memory only, use save to persist)\r\n",
+               ch, value);
+      reply(buf);
+    }
+  } else if (strncmp(cmd, "blackref ", 9) == 0) {
+    int ch, value;
+    if (sscanf(cmd + 9, "%d %d", &ch, &value) != 2 || ch < 1 || ch > 8) {
+      reply(">>> Usage: blackref CH VALUE (CH=1~8)\r\n");
+    } else {
+      sensor_set_black_ref(ch - 1, value);
+      char buf[64];
+      snprintf(buf, sizeof(buf), ">>> CH%d black ref set to %d (memory only, use save to persist)\r\n",
+               ch, value);
+      reply(buf);
+    }
+
   // --- go N ---
   } else if (strncmp(cmd, "go ", 3) == 0) {
     int sec = atoi(cmd + 3);
@@ -304,7 +328,9 @@ static void handle_command(const char* cmd) {
     reply("    pid ki N             PID integral gain (float, default 0.0)\r\n");
     reply("    pid kd N             PID derivative gain (float, default 5.0)\r\n");
     reply("    slewrate N           max PWM change per second (float, default 800, smaller = smoother/less zigzag)\r\n");
-    reply("    save                 save speed+turnspeed+mediumratio+sharpratio+xsharpratio+algo+pid gains+slewrate+file log on/off+thresholds to flash (/config.json)\r\n");
+    reply("    whiteref CH VALUE    set CHx (1~8) white reference (analog weighting for PID), memory only\r\n");
+    reply("    blackref CH VALUE    set CHx (1~8) black reference (analog weighting for PID), memory only\r\n");
+    reply("    save                 save speed+turnspeed+mediumratio+sharpratio+xsharpratio+algo+pid gains+slewrate+file log on/off+thresholds+white/black refs to flash (/config.json)\r\n");
     reply("    config               print current config as JSON\r\n");
     reply("    log dump             print /track.log.0~3 segments over Serial (USB), lines prefixed #ID\r\n");
     reply("    log clear            wipe all /track.log.* segments, #ID resets to 0\r\n");

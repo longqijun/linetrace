@@ -95,13 +95,14 @@ void loop() {
     int vals[SENSOR_COUNT];
     bool is_white[SENSOR_COUNT];
     sensor_read(vals);
-    sensor_binary(is_white);
-    float pos = sensor_position();
+    sensor_binary_from(vals, is_white);
+    float pos = sensor_position_from(is_white);
+    float apos = sensor_position_analog_from(vals);  // 模拟量加权版，标定whiteref/blackref时对照用
 
     count++;
-    char buf[160];
+    char buf[176];
     // 打印顺序按物理左→右排列（index 7→0，即CH8..CH1），跟track_module.cpp的T行保持一致
-    snprintf(buf, sizeof(buf), "[%d] %4d%c %4d%c %4d%c %4d%c %4d%c %4d%c %4d%c %4d%c  pos:%.2f\r\n",
+    snprintf(buf, sizeof(buf), "[%d] %4d%c %4d%c %4d%c %4d%c %4d%c %4d%c %4d%c %4d%c  pos:%.2f apos:%.2f\r\n",
              count,
              vals[7], is_white[7]?'W':'B',
              vals[6], is_white[6]?'W':'B',
@@ -111,7 +112,8 @@ void loop() {
              vals[2], is_white[2]?'W':'B',
              vals[1], is_white[1]?'W':'B',
              vals[0], is_white[0]?'W':'B',
-             isnan(pos) ? 0.0f : pos);
+             isnan(pos) ? 0.0f : pos,
+             isnan(apos) ? 0.0f : apos);
     out(buf);  // 受 print_module 控制，默认不输出
   }
 }
