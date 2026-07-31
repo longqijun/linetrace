@@ -14,8 +14,7 @@
 #define LOG_SEGMENT_MAX_BYTES (64L * 1024L)
 // 攒够这么多字节才落盘一次，减少flash写入频率
 #define LOG_BUF_CAPACITY 512
-// 一条log行加上"#ID "前缀之后的缓冲区，留够余量（目前最长的行不到100字节）
-#define LOG_LINE_BUF 160
+// 一条log行加上"#ID "前缀之后的缓冲区，用LOG_LINE_MAX（print_module.h，跨模块共用）
 
 static bool _usb = false;
 static bool _bt  = false;
@@ -119,9 +118,11 @@ void out_file(const char* msg) {
 
   sync_active_segment();
 
-  // 组装成"#ID 原内容"，原内容自带的\r\n不用动，不再需要定长/补空格（不做seek就不需要定长）
-  char rec[LOG_LINE_BUF];
-  int n = snprintf(rec, sizeof(rec), "#%8lu %s", _next_id, msg);
+  // 组装成"#ID 原内容"，原内容自带的\r\n不用动。ID用变长十进制（不补空格），
+  // 不影响解析——仍然靠"#"和空格定界，dump仍按段号0..N-1输出、靠ID大小判断时间序，
+  // 这个机制不变，只是ID小的时候能少写几个字节（见"LOG精简方案.md"3.3节）
+  char rec[LOG_LINE_MAX];
+  int n = snprintf(rec, sizeof(rec), "#%lu %s", _next_id, msg);
   if (n < 0) n = 0;
   if (n > (int)sizeof(rec) - 1) n = (int)sizeof(rec) - 1;
   _next_id++;
@@ -147,8 +148,21 @@ unsigned long print_file_next_id() { return _next_id; }
 
 bool print_file_wrapped() { return _rotation_count >= (unsigned long)LOG_SEGMENT_COUNT; }
 
+// modeCode/事件行格式说明，脱离"LOG精简方案.md"也能看懂dump出来的内容（见该文档第7节风险）
+void print_log_legend() {
+  Serial.println(">>> log line format: E<dt> <patHex> <modeCode> <L> <R>[ <err>]  (H=heartbeat instead of E)");
+  Serial.println(">>>   E行dt=ms since previous mode switch (not reset by heartbeats in between)");
+  Serial.println(">>>   H行dt=ms since previous logged line (heartbeat cadence)");
+  Serial.println(">>>   patHex=2-digit hex bitmask (bit7=CH8..bit0=CH1, 1=white); L/R=actual PWM sent; err=PID error (PID mode only)");
+  Serial.println(">>> modeCode: 0=STRAIGHT 1=LEFT(mild) 2=RIGHT(mild) 3=MEDIUM_L 4=MEDIUM_R 5=SHARP_L 6=SHARP_R");
+  Serial.println(">>>           7=HAIRPIN_L 8=HAIRPIN_R 9=CROSS A=LOST_L B=LOST_R C=LOST_STOP P=PID");
+  Serial.println(">>> markers: >>> TRACK_ON t=<ms> / >>> PARAMS ... / >>> TRACK_OFF t=<ms> elapsed=<ms>ms duration=<ms>ms lines=<n>");
+  Serial.println(">>>   elapsed=track on~off挂钟时长, duration=事件/心跳数据实际覆盖的时长(缓冲区提前写满时会比elapsed短)");
+}
+
 void print_file_dump() {
   file_flush();
+  print_log_legend();
 
   bool any = false;
   for (int i = 0; i < LOG_SEGMENT_COUNT; i++) {

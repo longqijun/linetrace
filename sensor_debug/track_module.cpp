@@ -3,8 +3,10 @@
 #include "motor_module.h"
 #include "config_module.h"
 #include "print_module.h"
+#include "ram_log_module.h"
 #include <Arduino.h>
 #include <stdio.h>
+#include <stdint.h>
 #include <math.h>
 
 // 8路传感器扩展后的4级差速bang-bang（见"8路传感器方案.md"）：
@@ -29,8 +31,9 @@
 // 丢线后延续最后转向方向找线的超时(ms)，超时未找回则停车
 #define LOST_TIMEOUT_MS 1500
 
-// 调试log节流间隔(ms)，定位问题用，确认后可调大或删除
-#define DEBUG_INTERVAL_MS 30
+// 内存日志心跳间隔(ms)：档位没变化时，隔多久也补一条记录，避免长直道完全没有输出
+// （见"LOG精简方案.md"第3节，纯兜底用，不是核心信号——核心信号是档位变化的事件行）
+#define HEARTBEAT_INTERVAL_MS 500
 
 // PID模式默认增益，均为起调参考值，未实车验证过，需实车试调
 // 误差用sensor_position_from()的-1.0~+1.0，输出直接是左右轮PWM的差速修正量（与base同量纲）
@@ -57,7 +60,11 @@
 #define SLEW_RATE_DEFAULT 800.0f
 
 static bool _on = false;
-static unsigned long _last_dbg = 0;
+static char _last_mode_code = 0;   // 上一次记进内存log的modeCode，0=哨兵值(尚无记录)，用来判断这次是不是"档位变化"
+static unsigned long _last_log_ms = 0;    // 上一条内存log记录行(E或H)的时间戳，H行的dt用这个算，代表心跳节奏
+static unsigned long _last_switch_ms = 0; // 上一次真正档位切换(E)的时间戳，E行的dt用这个算，不受中间插入的心跳(H)打断——
+                                           // 这样"上一次切换到这一次切换"的间隔（判断摆动频率最需要看的数）能直接从dt读出来，不用手动加H行的dt
+static unsigned long _track_on_ms = 0;    // 这一趟track on按下的时刻，track off时算真实挂钟时长(t_off-t_on)用，不是ram_log的10秒窗口那套
 static int _last_dir = 0;          // -1=上次左转  0=无记录  +1=上次右转
 static unsigned long _lost_since = 0;
 static float _turn_outer_ratio = TURN_OUTER_RATIO_DEFAULT;
@@ -187,6 +194,10 @@ void track_begin() {
   _on = false;
   _last_dir = 0;
   _lost_since = 0;
+  _last_mode_code = 0;
+  _last_log_ms = 0;
+  _last_switch_ms = 0;
+  _track_on_ms = 0;
   pid_reset();
   slew_reset();
 }
@@ -201,22 +212,49 @@ void track_set(bool on) {
   pid_reset();   // 开启时重新起跑，关闭时清掉残留状态，两种情况都不该带着旧积分继续算
   slew_reset();  // 限速状态同样清零，避免开关之间残留的旧pwm值影响下一次起跑
 
-  // 只写文件通道：命令/按钮各自已经通过reply()把ON/OFF提示发到USB+BT了，这里再走out()
-  // 会重复；但track_update()关闭时完全不打印，file log里没有别的地方能留下OFF的痕迹，
-  // 所以单独给文件通道补一条，配合#ID可以准确定位一次track on~off覆盖的record范围。
-  // ON时顺带记下当前算法和增益：T行本身不直接说"现在是哪个算法"（只能靠有没有E:字段间接猜），
-  // 事后翻log时不用再去猜这一段测试跑的时候config是什么状态
-  char buf[160];
-  if (on && _algo == TRACK_ALGO_PID) {
-    snprintf(buf, sizeof(buf), ">>> TRACK_ON t=%lu algo=PID speed=%d kp=%.2f ki=%.2f kd=%.2f\r\n",
-             millis(), config_get_speed(), _pid_kp, _pid_ki, _pid_kd);
-  } else if (on) {
-    snprintf(buf, sizeof(buf), ">>> TRACK_ON t=%lu algo=BANGBANG speed=%d turn_ratio=%.2f medium_ratio=%.2f sharp_ratio=%.2f xsharp_ratio=%.2f\r\n",
-             millis(), config_get_speed(), _turn_outer_ratio, _medium_ratio, _sharp_ratio, _xsharp_ratio);
+  // 日志全部写内存缓冲区（ram_log_module）。track on~off全程不碰flash，只有track off
+  // 这一刻才会顺带把内存内容备份进flash——这时电机已经停了，落盘卡多久都不影响巡线响应。
+  // 只写内存：命令/按钮各自已经通过reply()把ON/OFF提示发到USB+BT了，这里不重复走out_usb/out_bt。
+  char buf[LOG_LINE_MAX];
+  if (on) {
+    _track_on_ms = millis();  // 真实挂钟时长(t_off-t_on)的起点，跟ram_log内部的采集状态分开记
+
+    ram_log_begin();
+    _last_mode_code = 0;   // 哨兵值，保证这一趟第一条事件行一定会记（不管当前是不是STRAIGHT）
+    _last_log_ms = 0;
+    _last_switch_ms = 0;
+
+    snprintf(buf, sizeof(buf), ">>> TRACK_ON t=%lu\r\n", _track_on_ms);
+    ram_log_append_marker(buf);
+
+    config_build_params_line(buf, sizeof(buf));  // 当前生效的全部参数快照，见4.3节
+    ram_log_append_marker(buf);
   } else {
-    snprintf(buf, sizeof(buf), ">>> TRACK_OFF t=%lu\r\n", millis());
+    // 先取duration/lines/elapsed再拼TRACK_OFF这一行：duration只统计事件/心跳行，不含
+    // TRACK_OFF自己（TRACK_OFF走的是可以动用预留余量的marker通道，见ram_log_append_marker()
+    // 注释）。elapsed是track on到track off之间真实经过的挂钟时间，跟duration是两回事——
+    // 之前有过用户拿手机计时对不上号的疑惑（duration被10秒窗口卡住了，那套窗口现在已经
+    // 去掉了，但duration仍然可能因为缓冲区提前写满而比elapsed短，所以两个数都留着）
+    unsigned long now_ms = millis();
+    unsigned long elapsed_ms = now_ms - _track_on_ms;
+    unsigned long duration_ms = ram_log_duration_ms();
+    unsigned long lines = ram_log_line_count();
+
+    snprintf(buf, sizeof(buf), ">>> TRACK_OFF t=%lu elapsed=%lums duration=%lums lines=%lu\r\n",
+             now_ms, elapsed_ms, duration_ms, lines);
+    ram_log_append_marker(buf);
+
+    // flash里永远只留"最新一趟"：落盘前先清空旧内容，再把这一趟写进去（不是累积多趟）。
+    // ram_log_flush_to_file()只负责写，不会清空RAM，"log dump"照常能从内存读到这一趟的内容
+    print_file_clear();
+    ram_log_flush_to_file();
+
+    char msg[160];
+    snprintf(msg, sizeof(msg),
+             ">>> Captured %lu lines over %lums (track on~off elapsed %lums), saved to flash, type 'log dump' to view\r\n",
+             lines, duration_ms, elapsed_ms);
+    Serial.print(msg);   // 直接走Serial，不受print usb on/off开关影响，现场随时能看到
   }
-  out_file(buf);
 }
 
 bool track_is_on() {
@@ -261,7 +299,7 @@ void track_update() {
 
   int pwm_l = base;
   int pwm_r = base;
-  const char* mode = "STRAIGHT";
+  char mode_code = '0';  // modeCode编码表见"LOG精简方案.md"3.2节，'0'=STRAIGHT
   bool stop_now = false;  // true时跳过限速直接停车（安全优先，丢线超时停车不该被限速拖慢）
 
   unsigned long now = millis();
@@ -272,18 +310,18 @@ void track_update() {
     if (now - _lost_since > LOST_TIMEOUT_MS) {
       pwm_l = 0;
       pwm_r = 0;
-      mode = "LOST_STOP";
+      mode_code = 'C';
       stop_now = true;
     } else if (_last_dir < 0) {
       pwm_l = sharp_turn;   // 延续上次左转方向找线
-      mode = "LOST_L";
+      mode_code = 'A';
     } else if (_last_dir > 0) {
       pwm_r = sharp_turn;   // 延续上次右转方向找线
-      mode = "LOST_R";
+      mode_code = 'B';
     }
   } else if (cross) {
     _lost_since = 0;
-    mode = "CROSS";   // 十字路口/宽线，直行穿过，不更新_last_dir
+    mode_code = '9';   // 十字路口/宽线，直行穿过，不更新_last_dir
   } else if (_algo == TRACK_ALGO_PID) {
     _lost_since = 0;
     // 误差=模拟量加权位置（2026-07-29改用analog版本，见sensor_module.cpp的
@@ -321,45 +359,45 @@ void track_update() {
 
     pwm_l = clamp_pwm(base + _pid_hold_output);
     pwm_r = clamp_pwm(base - _pid_hold_output);
-    mode = "PID";
+    mode_code = 'P';
   } else {
     _lost_since = 0;
     // 由外到内依次判定，命中最外层就不再看内层（见"8路传感器方案.md"第4节）
     if (xsharp_l) {
       pwm_l = xsharp_turn;  // CH8压线，发卡弯（内轮反转，比sharp更激进）
       pwm_r = (int)(base * _turn_outer_ratio);  // 外轮同步降速，减少入弯动能
-      mode = "HAIRPIN_L";
+      mode_code = '7';
       _last_dir = -1;
     } else if (sharp_l) {
       pwm_l = sharp_turn;   // CH7压线，急转（内轮反转）
       pwm_r = (int)(base * _turn_outer_ratio);  // 外轮同步降速，减少入弯动能
-      mode = "SHARP_L";
+      mode_code = '5';
       _last_dir = -1;
     } else if (medium_l) {
       pwm_l = medium_turn;  // CH6压线，中转（内轮减速，不反转）
-      mode = "MEDIUM_L";
+      mode_code = '3';
       _last_dir = -1;
     } else if (mild_l) {
       pwm_l = mild_turn;    // CH5压线，缓转
-      mode = "LEFT";
+      mode_code = '1';
       _last_dir = -1;
     } else if (xsharp_r) {
       pwm_r = xsharp_turn;  // CH1压线，发卡弯（内轮反转，比sharp更激进）
       pwm_l = (int)(base * _turn_outer_ratio);  // 外轮同步降速，减少入弯动能
-      mode = "HAIRPIN_R";
+      mode_code = '8';
       _last_dir = 1;
     } else if (sharp_r) {
       pwm_r = sharp_turn;   // CH2压线，急转（内轮反转）
       pwm_l = (int)(base * _turn_outer_ratio);  // 外轮同步降速，减少入弯动能
-      mode = "SHARP_R";
+      mode_code = '6';
       _last_dir = 1;
     } else if (medium_r) {
       pwm_r = medium_turn;  // CH3压线，中转（内轮减速，不反转）
-      mode = "MEDIUM_R";
+      mode_code = '4';
       _last_dir = 1;
     } else if (mild_r) {
       pwm_r = mild_turn;    // CH4压线，缓转
-      mode = "RIGHT";
+      mode_code = '2';
       _last_dir = 1;
     }
     // 都不命中（全黑或中间对同时压线）：直行，不更新_last_dir
@@ -378,37 +416,39 @@ void track_update() {
 
   motor_set(pwm_l, pwm_r);
 
-  // 调试log：时间戳+8路W/B图案+判定模式+实际下发PWM，定位急弯失效用
-  // PID模式额外附上当前误差(E:)，方便实车调Kp/Ki/Kd时对照
-  if (now - _last_dbg >= DEBUG_INTERVAL_MS) {
-    _last_dbg = now;
-    char buf[128];
-    // 打印顺序按物理左→右排列（index 7→0，即CH8..CH1），与实车左右保持一致
-    if (_algo == TRACK_ALGO_PID) {
-      snprintf(buf, sizeof(buf), "T %6lu %c%c%c%c%c%c%c%c %-9s L:%4d R:%4d E:%+.2f\r\n",
-               now,
-               is_white[7] ? 'W' : 'B',
-               is_white[6] ? 'W' : 'B',
-               is_white[5] ? 'W' : 'B',
-               is_white[4] ? 'W' : 'B',
-               is_white[3] ? 'W' : 'B',
-               is_white[2] ? 'W' : 'B',
-               is_white[1] ? 'W' : 'B',
-               is_white[0] ? 'W' : 'B',
-               mode, pwm_l, pwm_r, _pid_last_error);
+  // 内存日志：事件触发（档位变化）+ 可选心跳，紧凑格式，见"LOG精简方案.md"第3节。
+  // track on期间只追加进内存缓冲区（ram_log_append），不碰flash；同时照常走USB/BT
+  // 实时输出（out_usb/out_bt各自受print set usb/bt on/off控制），方便测试时现场盯着看
+  bool mode_changed = (mode_code != _last_mode_code);
+  bool heartbeat_due = !mode_changed && (now - _last_log_ms >= HEARTBEAT_INTERVAL_MS);
+  if (mode_changed || heartbeat_due) {
+    // E行的dt=距上一次真正切换的间隔（用_last_switch_ms算，不受中间插入的心跳打断，
+    // 判断摆动频率最需要看的就是这个数）；H行的dt=距上一条记录行的间隔（心跳节奏本身）
+    unsigned long dt;
+    if (mode_changed) {
+      dt = (_last_switch_ms == 0) ? 0 : (now - _last_switch_ms);
+      _last_switch_ms = now;
     } else {
-      snprintf(buf, sizeof(buf), "T %6lu %c%c%c%c%c%c%c%c %-9s L:%4d R:%4d\r\n",
-               now,
-               is_white[7] ? 'W' : 'B',
-               is_white[6] ? 'W' : 'B',
-               is_white[5] ? 'W' : 'B',
-               is_white[4] ? 'W' : 'B',
-               is_white[3] ? 'W' : 'B',
-               is_white[2] ? 'W' : 'B',
-               is_white[1] ? 'W' : 'B',
-               is_white[0] ? 'W' : 'B',
-               mode, pwm_l, pwm_r);
+      dt = (_last_log_ms == 0) ? 0 : (now - _last_log_ms);
     }
-    out(buf);
+    _last_log_ms = now;
+    _last_mode_code = mode_code;
+
+    // 8路is_white[]拼成位图：bit7=CH8(index7)...bit0=CH1(index0)，跟"物理左→右"顺序一致
+    uint8_t pattern = 0;
+    for (int i = 0; i < SENSOR_COUNT; i++) if (is_white[i]) pattern |= (uint8_t)(1 << i);
+
+    char rec[LOG_LINE_MAX];
+    char ev = mode_changed ? 'E' : 'H';
+    if (_algo == TRACK_ALGO_PID) {
+      snprintf(rec, sizeof(rec), "%c%lu %02X %c %d %d %+.2f\r\n",
+               ev, dt, pattern, mode_code, pwm_l, pwm_r, _pid_last_error);
+    } else {
+      snprintf(rec, sizeof(rec), "%c%lu %02X %c %d %d\r\n",
+               ev, dt, pattern, mode_code, pwm_l, pwm_r);
+    }
+    out_usb(rec);
+    out_bt(rec);
+    ram_log_append(rec);
   }
 }

@@ -6,6 +6,7 @@
 #include <Arduino.h>
 #include <LittleFS.h>
 #include <ArduinoJson.h>
+#include <stdio.h>
 
 #define CONFIG_FILE   "/config.json"
 #define DEFAULT_SPEED 12  // 原1~10档的3，等比换算到1~40档（3*4）
@@ -147,4 +148,33 @@ void config_print() {
   Serial.print("\r\n");
   bt_send(buf);
   bt_send("\r\n");
+}
+
+// "[v0,v1,...,v7]"，getter(i)取第i路的值，SENSOR_COUNT路
+static void build_int_array(char* out, size_t out_size, int (*getter)(int)) {
+  size_t pos = 0;
+  if (out_size == 0) return;
+  out[pos++] = '[';
+  for (int i = 0; i < SENSOR_COUNT && pos + 1 < out_size; i++) {
+    int n = snprintf(out + pos, out_size - pos, i == 0 ? "%d" : ",%d", getter(i));
+    if (n < 0 || pos + (size_t)n >= out_size) break;
+    pos += n;
+  }
+  if (pos + 1 < out_size) out[pos++] = ']';
+  out[pos] = '\0';
+}
+
+void config_build_params_line(char* buf, size_t buf_size) {
+  char thresh[96], white[96], black[96];
+  build_int_array(thresh, sizeof(thresh), sensor_get_threshold);
+  build_int_array(white, sizeof(white), sensor_get_white_ref);
+  build_int_array(black, sizeof(black), sensor_get_black_ref);
+
+  snprintf(buf, buf_size,
+           ">>> PARAMS speed=%d algo=%s turn_ratio=%.2f medium_ratio=%.2f sharp_ratio=%.2f xsharp_ratio=%.2f "
+           "slew_rate=%.1f pid_kp=%.2f pid_ki=%.2f pid_kd=%.2f thresh=%s white=%s black=%s\r\n",
+           _speed, track_get_algo() == TRACK_ALGO_PID ? "PID" : "BANGBANG",
+           track_get_turn_ratio(), track_get_medium_ratio(), track_get_sharp_ratio(), track_get_xsharp_ratio(),
+           track_get_slew_rate(), track_get_pid_kp(), track_get_pid_ki(), track_get_pid_kd(),
+           thresh, white, black);
 }

@@ -5,6 +5,7 @@
 #include "config_module.h"
 #include "track_module.h"
 #include "sensor_module.h"
+#include "ram_log_module.h"
 #include <Arduino.h>
 #include <string.h>
 #include <stdlib.h>
@@ -188,9 +189,17 @@ static void handle_command(const char* cmd) {
   } else if (strcmp(cmd, "config") == 0) {
     config_print();
 
-  // --- log dump/clear/status (Flash文件log，配合print file on使用) ---
+  // --- mem (剩余堆内存+最大可分配连续块+ram_log_module实际分配到的缓冲区大小，见"LOG精简方案.md"4.2节) ---
+  } else if (strcmp(cmd, "mem") == 0) {
+    char buf[160];
+    snprintf(buf, sizeof(buf), ">>> Free heap: %u bytes (min ever: %u), max alloc: %u bytes, ram log buffer: %u bytes\r\n",
+             (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMinFreeHeap(),
+             (unsigned)ESP.getMaxAllocHeap(), (unsigned)ram_log_capacity());
+    reply(buf);
+
+  // --- log dump/clear/status ---
   } else if (strcmp(cmd, "log dump") == 0) {
-    print_file_dump();
+    ram_log_dump();  // 直接从内存打印，不经过flash（见用户反馈，flash落盘先停用）
   } else if (strcmp(cmd, "log clear") == 0) {
     print_file_clear();
     reply(">>> Log file cleared\r\n");
@@ -200,6 +209,8 @@ static void handle_command(const char* cmd) {
              print_file_enabled() ? "ON" : "OFF", print_file_size(), print_file_next_id(),
              print_file_wrapped() ? ", 已绕回过(最老的记录已被覆盖)" : ", 未绕回(尚未写满一圈)");
     reply(buf);
+  } else if (strcmp(cmd, "log format") == 0) {
+    print_log_legend();
 
   // --- threshold CH VALUE (8路方案：CH1~CH8，见"8路传感器方案.md") ---
   } else if (strncmp(cmd, "threshold ", 10) == 0) {
@@ -317,7 +328,7 @@ static void handle_command(const char* cmd) {
     reply("    spin left N          spin in place left N sec (1~60)\r\n");
     reply("    spin right N         spin in place right N sec (1~60)\r\n");
     reply("    stop                 stop motor immediately (also cancels track)\r\n");
-    reply("    track on/off         start/stop autonomous line tracking\r\n");
+    reply("    track on/off         start/stop autonomous line tracking (log: RAM-only during run until buffer nearly full, backed up to flash on off)\r\n");
     reply("    speed N              speed level (1~40, default 12, until changed)\r\n");
     reply("    turnspeed N          outer wheel ratio on sharp/hairpin turn (0~100%, default 65)\r\n");
     reply("    mediumratio N        inner wheel speed on medium turn CH3/CH6 (0~100%, default 35)\r\n");
@@ -332,9 +343,11 @@ static void handle_command(const char* cmd) {
     reply("    blackref CH VALUE    set CHx (1~8) black reference (analog weighting for PID), memory only\r\n");
     reply("    save                 save speed+turnspeed+mediumratio+sharpratio+xsharpratio+algo+pid gains+slewrate+file log on/off+thresholds+white/black refs to flash (/config.json)\r\n");
     reply("    config               print current config as JSON\r\n");
-    reply("    log dump             print /track.log.0~3 segments over Serial (USB), lines prefixed #ID\r\n");
+    reply("    mem                  show free heap + ram log buffer size (auto-sized at boot, see ram_log_auto_init())\r\n");
+    reply("    log dump             print current RAM log buffer over Serial (most recent track on run, no flash involved)\r\n");
     reply("    log clear            wipe all /track.log.* segments, #ID resets to 0\r\n");
     reply("    log status           show whether file log is on, capacity, next #ID, wrapped y/n\r\n");
+    reply("    log format           print event/heartbeat line format + modeCode legend\r\n");
     reply("    threshold CH VALUE   set CHx (1~8) threshold, memory only\r\n");
     reply("    help                 show this help\r\n");
 

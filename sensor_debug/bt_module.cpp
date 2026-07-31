@@ -1,50 +1,26 @@
 #include "bt_module.h"
-#include "BluetoothSerial.h"
 
-static BluetoothSerial _bt;
-static bool _began = false;  // bt_begin()没被调用过时，其余函数直接短路返回，不碰_bt对象
-static char _line_buf[64];
-static int  _line_len = 0;
+// BT彻底停用后的空实现（stub）：不再#include "BluetoothSerial.h"、不再有BluetoothSerial对象，
+// 经典BT/Bluedroid host协议栈那部分代码因此不会被链接进固件（配合sensor_debug.ino里
+// esp_bt_controller_mem_release()释放controller层内存，两层加起来BT基本不占用flash/RAM）。
+// 函数签名保持不变，是为了其他模块（cmd_module.cpp的reply()、print_module.cpp的out_bt()、
+// sensor_debug.ino的按键处理）不用跟着改一行代码——都调用这几个函数，只是现在什么也不做。
+// 如果以后要恢复BT：把下面的实现换回真正调BluetoothSerial的版本即可（可以查git历史）。
 
 void bt_begin(const char* name) {
-  _bt.begin(name);
-  _began = true;
+  (void)name;
 }
 
 bool bt_connected() {
-  if (!_began) return false;
-  return _bt.hasClient();
+  return false;
 }
 
 void bt_send(const char* msg) {
-  if (!_began) return;
-  if (_bt.hasClient()) {
-    _bt.print(msg);
-  }
+  (void)msg;
 }
 
 bool bt_poll_line(char* buf, int maxlen) {
-  if (!_began) return false;
-  while (_bt.available()) {
-    char c = (char)_bt.read();
-
-    if (c == '\r' || c == '\n') {
-      if (_line_len == 0) continue;       // 忽略空行
-      _bt.print("\r\n");                  // 回车换行回显
-      _line_buf[_line_len] = '\0';
-      strncpy(buf, _line_buf, maxlen - 1);
-      buf[maxlen - 1] = '\0';
-      _line_len = 0;
-      return true;
-    } else if (c == 0x08 || c == 0x7F) { // 退格
-      if (_line_len > 0) {
-        _line_len--;
-        _bt.print("\x08 \x08"); // 光标退一格、清除、再退
-      }
-    } else if (_line_len < (int)sizeof(_line_buf) - 1) {
-      _line_buf[_line_len++] = c;
-      _bt.write(c);                       // 字符回显
-    }
-  }
+  (void)buf;
+  (void)maxlen;
   return false;
 }

@@ -1,5 +1,6 @@
 #include "soc/soc.h"
 #include "soc/rtc_cntl_reg.h"
+#include "esp_bt.h"
 #include "bt_module.h"
 #include "print_module.h"
 #include "sensor_module.h"
@@ -7,6 +8,7 @@
 #include "config_module.h"
 #include "track_module.h"
 #include "cmd_module.h"
+#include "ram_log_module.h"
 
 const int BUTTON_PIN = 0;  // Boot按钮，按下=低电平，用作track on/off物理开关
 int count = 0;
@@ -25,6 +27,13 @@ unsigned long loop_stat_last_print_ms = 0;
 void setup() {
   WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);
 
+  // BT已经彻底不用了（bt_begin()从未被调用，见下面注释），显式把BT控制器预留的内存
+  // （经典BT+BLE都不用，用BTDM一次性全释放）还给通用堆，让ram_log_auto_init()能多分到
+  // 一些空间。必须在任何BT初始化动作之前调用最早、最先执行；调用之后这次开机周期内
+  // BT就再也起不来了——这跟本项目"BT已彻底停用"的既有决定是一致的，如果以后要恢复BT，
+  // 必须先删掉这一行，不然bt_begin()会失败
+  esp_bt_controller_mem_release(ESP_BT_MODE_BTDM);
+
   pinMode(BUTTON_PIN, INPUT_PULLUP);
   Serial.begin(115200);
 
@@ -35,9 +44,15 @@ void setup() {
   track_begin();
   // BT关闭：连接一直不稳定，反复诊断也没能根治，干脆不开BT模块，只用USB Serial
   // （命令输入、log dump等全部功能USB本来就都支持，见cmd_module.cpp的cmd_poll()）。
-  // bt_module.cpp里其余函数在bt_begin()没被调用时都会直接短路返回，不需要额外改动
-  // 如果以后想恢复BT，取消下面这行注释即可：
+  // bt_module.cpp现在是空实现（stub，不再链接BluetoothSerial库，见该文件注释），
+  // 光取消下面这行注释不够用了——如果以后想恢复BT，要先把bt_module.cpp换回真正调
+  // BluetoothSerial的实现（查git历史），再把上面的esp_bt_controller_mem_release()
+  // 删掉（释放过controller内存之后这次开机周期内BT不可能再启动成功），最后才取消这行注释：
   // bt_begin("LineTrace");
+
+  // 放在其他_begin()都跑完之后：这时候读到的空闲堆才是"稳态下真实能用的余量"，
+  // 缓冲区大小按这个自动定，不用每次改代码都手动改一个写死的字节数（见"LOG精简方案.md"4.2节）
+  ram_log_auto_init();
 
   // 阈值提示走 reply 路径（始终可见）
   Serial.println("Boot complete. Type help for commands");
