@@ -1,0 +1,95 @@
+help
+>>> Available commands:
+    print on/off         USB+BT data stream on/off
+    print usb on/off     USB data stream only
+    print bt  on/off     BT  data stream only
+    print file on/off    log data stream to /track.log.0~3 flash files, ring buffer w/ #ID (for when BT drops)
+    go N                 forward N sec (1~60)
+    back N               backward N sec (1~60)
+    spin left N          spin in place left N sec (1~60)
+    spin right N         spin in place right N sec (1~60)
+    stop                 stop motor immediately (also cancels track)
+    track on/off         start/stop autonomous line tracking (log: RAM-only during run, first 10s, batch-flushed to flash on off)
+    speed N              speed level (1~40, default 12, until changed)
+    turnspeed N          outer wheel ratio on sharp/hairpin turn (0~100%, default 65)
+    mediumratio N        inner wheel speed on medium turn CH3/CH6 (0~100%, default 35)
+    sharpratio N         inner wheel reverse ratio on sharp turn CH2/CH7 (0~100%, default 30)
+    xsharpratio N        inner wheel reverse ratio on hairpin turn CH1/CH8 (0~100%, default 60)
+    algo bangbang/pid    select track algorithm (default bangbang)
+    pid kp N             PID proportional gain (float, default 40.0)
+    pid ki N             PID integral gain (float, default 0.0)
+    pid kd N             PID derivative gain (float, default 5.0)
+    slewrate N           max PWM change per second (float, default 800, smaller = smoother/less zigzag)
+    whiteref CH VALUE    set CHx (1~8) white reference (analog weighting for PID), memory only
+    blackref CH VALUE    set CHx (1~8) black reference (analog weighting for PID), memory only
+    save                 save speed+turnspeed+mediumratio+sharpratio+xsharpratio+algo+pid gains+slewrate+file log on/off+thresholds+white/black refs to flash (/config.json)
+    config               print current config as JSON
+    mem                  show free heap + ram log buffer size (auto-sized at boot, see ram_log_auto_init())
+    log dump             print current RAM log buffer over Serial (most recent track on run, no flash involved)
+    log clear            wipe all /track.log.* segments, #ID resets to 0
+    log status           show whether file log is on, capacity, next #ID, wrapped y/n
+    log format           print event/heartbeat line format + modeCode legend
+    threshold CH VALUE   set CHx (1~8) threshold, memory only
+    help                 show this help
+>> Track ON (button)
+>>> Captured 47 lines over 9958ms, saved to flash, type 'log dump' to view
+Track OFF (button)
+log dump
+>>> log line format: E<dt> <patHex> <modeCode> <L> <R>[ <err>]  (H=heartbeat instead of E)
+>>>   E行dt=ms since previous mode switch (not reset by heartbeats in between)
+>>>   H行dt=ms since previous logged line (heartbeat cadence)
+>>>   patHex=2-digit hex bitmask (bit7=CH8..bit0=CH1, 1=white); L/R=actual PWM sent; err=PID error (PID mode only)
+>>> modeCode: 0=STRAIGHT 1=LEFT(mild) 2=RIGHT(mild) 3=MEDIUM_L 4=MEDIUM_R 5=SHARP_L 6=SHARP_R
+>>>           7=HAIRPIN_L 8=HAIRPIN_R 9=CROSS A=LOST_L B=LOST_R C=LOST_STOP P=PID
+>>> markers: >>> TRACK_ON t=<ms> / >>> PARAMS ... / >>> TRACK_OFF t=<ms> duration=<ms>ms lines=<n>
+>>> --- RAM log dump start (48 lines, most recent track on so far) ---
+>>> TRACK_ON t=7768
+>>> PARAMS speed=18 algo=BANGBANG turn_ratio=0.65 medium_ratio=0.35 sharp_ratio=-0.40 xsharp_ratio=-0.60 slew_rate=5000.0 pid_kp=40.00 pid_ki=0.00 pid_kd=0.00 thresh=[1666,1580,1800,2000,1130,1040,1200,1200] white=[1111,1100,640,1280,560,580,690,600] black=[2600,2400,2200,2100,2100,2000,2300,2400]
+E0 00 0 0 0
+H501 00 0 115 115
+H500 00 0 115 115
+E1501 00 C 0 0
+H500 00 C 0 0
+H500 00 C 0 0
+H500 00 C 0 0
+E1530 08 2 0 0
+E352 00 B 115 70
+H500 00 B 115 -46
+E540 08 2 115 -36
+E2 18 9 115 -26
+E74 10 1 105 115
+E84 00 A 70 115
+E14 08 2 20 105
+E404 00 B 115 70
+E104 10 1 105 -36
+E186 00 A 70 115
+E134 20 3 -36 115
+E262 00 A 30 115
+E80 10 1 -36 115
+E190 00 A 70 115
+E50 08 2 -36 105
+H500 08 2 115 80
+E888 18 9 115 90
+E30 10 1 105 115
+E138 00 A 70 115
+E6 08 2 60 105
+E18 00 B 115 70
+E250 20 3 105 -36
+E240 00 A 30 115
+E280 10 1 -36 115
+E188 00 A 70 115
+E74 08 2 -36 105
+H500 08 2 115 80
+H500 08 2 115 80
+E1100 00 B 115 70
+E18 10 1 105 0
+E264 00 A 70 115
+E86 20 3 -36 115
+E202 00 A 30 115
+E102 08 2 -36 105
+E346 00 B 115 70
+E64 10 1 105 -36
+E154 00 A 70 115
+>>> TRACK_OFF t=20592 duration=9958ms lines=47
+>>> --- RAM log dump end ---
+>> 

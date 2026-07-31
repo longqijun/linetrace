@@ -1,0 +1,182 @@
+config
+{"speed":16,"turn_ratio":0.65,"sharp_ratio":-0.4,"algo":0,"pid_kp":40,"pid_ki":0,"pid_kd":0,"file_log":true,"threshold":[1546,1580,1422,1400,1500]}
+>> help
+>>> Available commands:
+    print on/off         USB+BT data stream on/off
+    print usb on/off     USB data stream only
+    print bt  on/off     BT  data stream only
+    print file on/off    log data stream to /track.log.0~3 flash files, ring buffer w/ #ID (for when BT drops)
+    go N                 forward N sec (1~60)
+    back N               backward N sec (1~60)
+    spin left N          spin in place left N sec (1~60)
+    spin right N         spin in place right N sec (1~60)
+    stop                 stop motor immediately (also cancels track)
+    track on/off         start/stop autonomous line tracking
+    speed N              speed level (1~40, default 12, until changed)
+    turnspeed N          outer wheel ratio on sharp turn (0~100%, default 65)
+    sharpratio N         inner wheel reverse ratio on sharp turn (0~100%, default 30)
+    algo bangbang/pid    select track algorithm (default bangbang)
+    pid kp N             PID proportional gain (float, default 40.0)
+    pid ki N             PID integral gain (float, default 0.0)
+    pid kd N             PID derivative gain (float, default 5.0)
+    save                 save speed+turnspeed+sharpratio+algo+pid gains+file log on/off+thresholds to flash (/config.json)
+    config               print current config as JSON
+    log dump             print /track.log.0~3 segments over Serial (USB), lines prefixed #ID
+    log clear            wipe all /track.log.* segments, #ID resets to 0
+    log status           show whether file log is on, capacity, next #ID, wrapped y/n
+    threshold CH VALUE   set CHx (2~6) threshold, memory only
+    help                 show this help
+>> log clear
+>>> Log file cleared
+>> log dump
+>>> --- log dump start (4 segments, next_id=147) 按段号0..N-1固定顺序输出，不代表时间顺序，行首#ID断层处就是绕回点 ---
+>>> --- segment 0 (8289 bytes) ---
+#       0 [123]  688W  576W  558W  618W  610W  pos:0.00
+#       1 LOOP 74692/s avg=13us min=12us max=64271us
+#       2 [124]  687W  579W  558W  615W  611W  pos:0.00
+#       3 [125]  688W  578W  557W  614W  609W  pos:0.00
+#       4 [126]  688W  577W  556W  613W  612W  pos:0.00
+#       5 [127]  688W  578W  558W  615W  610W  pos:0.00
+#       6 [128]  688W  576W  557W  613W  610W  pos:0.00
+#       7 LOOP 80439/s avg=12us min=12us max=719us
+#       8 [129]  688W  577W  559W  615W  609W  pos:0.00
+#       9 [130]  688W  577W  559W  615W  611W  pos:0.00
+#      10 [131]  688W  577W  559W  618W  610W  pos:0.00
+#      11 [132]  688W  576W  558W  616W  610W  pos:0.00
+#      12 [133]  688W  578W  559W  615W  611W  pos:0.00
+#      13 LOOP 79735/s avg=12us min=12us max=9321us
+#      14 [134]  689W  577W  559W  614W  611W  pos:0.00
+#      15 [135]  688W  579W  560W  615W  611W  pos:0.00
+#      16 [136]  688W  577W  559W  613W  609W  pos:0.00
+#      17 [137]  689W  577W  558W  613W  609W  pos:0.00
+#      18 [138]  688W  576W  559W  617W  610W  pos:0.00
+#      19 LOOP 80427/s avg=13us min=12us max=54510us
+#      20 [139]  688W  577W  557W  613W  611W  pos:0.00
+#      21 [140]  688W  577W  558W  618W  609W  pos:0.00
+#      22 [141]  688W  577W  558W  617W  609W  pos:0.00
+#      23 [142]  688W  576W  559W  617W  611W  pos:0.00
+#      24 [143]  688W  578W  558W  613W  611W  pos:0.00
+#      25 LOOP 80387/s avg=12us min=12us max=803us
+#      26 [144]  688W  577W  560W  614W  611W  pos:0.00
+#      27 [145]  689W  576W  560W  615W  610W  pos:0.00
+#      28 [146]  688W  577W  557W  617W  611W  pos:0.00
+#      29 [147]  688W  577W  558W  616W  611W  pos:0.00
+#      30 [148]  689W  578W  558W  615W  610W  pos:0.00
+#      31 LOOP 76059/s avg=13us min=12us max=54933us
+#      32 [149]  695W  575W  555W  613W  607W  pos:0.00
+#      33 [150]  688W  577W  558W  615W  610W  pos:0.00
+#      34 [151]  688W  577W  559W  615W  610W  pos:0.00
+#      35 [152]  688W  577W  558W  618W  611W  pos:0.00
+#      36 [153]  688W  576W  559W  615W  610W  pos:0.00
+#      37 LOOP 76136/s avg=13us min=12us max=58508us
+#      38 [154]  688W  577W  558W  615W  612W  pos:0.00
+#      39 [155]  688W  577W  559W  614W  610W  pos:0.00
+#      40 [156]  688W  578W  559W  618W  611W  pos:0.00
+#      41 [157]  688W  576W  558W  614W  611W  pos:0.00
+#      42 [158]  688W  578W  559W  618W  610W  pos:0.00
+#      43 LOOP 80397/s avg=12us min=12us max=802us
+#      44 [159]  688W  579W  559W  614W  610W  pos:0.00
+#      45 [160]  689W  578W  559W  613W  611W  pos:0.00
+#      46 [161]  688W  578W  559W  619W  611W  pos:0.00
+#      47 [162]  699W  574W  558W  613W  610W  pos:0.00
+#      48 [163]  688W  579W  557W  614W  610W  pos:0.00
+#      49 LOOP 76376/s avg=13us min=12us max=50890us
+#      50 [164]  688W  576W  559W  615W  611W  pos:0.00
+#      51 [165]  688W  578W  557W  614W  610W  pos:0.00
+#      52 [166]  688W  577W  556W  615W  608W  pos:0.00
+#      53 [167]  688W  577W  559W  617W  611W  pos:0.00
+#      54 [168]  688W  576W  558W  613W  611W  pos:0.00
+#      55 LOOP 75823/s avg=14us min=12us max=128700us
+#      56 [169]  688W  576W  560W  615W  609W  pos:0.00
+#      57 [170]  689W  578W  559W  615W  610W  pos:0.00
+#      58 [171]  688W  577W  557W  613W  611W  pos:0.00
+#      59 [172]  688W  577W  560W  615W  610W  pos:0.00
+#      60 [173]  688W  577W  558W  615W  612W  pos:0.00
+#      61 LOOP 80381/s avg=12us min=12us max=800us
+#      62 [174]  688W  577W  558W  613W  610W  pos:0.00
+#      63 [175]  688W  579W  559W  614W  611W  pos:0.00
+#      64 [176]  688W  577W  559W  616W  611W  pos:0.00
+#      65 [177]  688W  578W  559W  616W  611W  pos:0.00
+#      66 [178]  688W  577W  559W  614W  609W  pos:0.00
+#      67 LOOP 75491/s avg=13us min=12us max=61862us
+#      68 [179]  688W  576W  559W  615W  609W  pos:0.00
+#      69 [180]  688W  577W  557W  615W  610W  pos:0.00
+#      70 [181]  688W  577W  560W  615W  609W  pos:0.00
+#      71 [182]  688W  577W  558W  614W  610W  pos:0.00
+#      72 [183]  688W  576W  559W  614W  610W  pos:0.00
+#      73 LOOP 75676/s avg=13us min=12us max=59825us
+#      74 [184]  688W  577W  557W  615W  608W  pos:0.00
+#      75 [185]  688W  577W  557W  617W  610W  pos:0.00
+#      76 [186]  688W  578W  557W  613W  611W  pos:0.00
+#      77 [187]  688W  577W  557W  617W  609W  pos:0.00
+#      78 [188]  688W  578W  559W  614W  610W  pos:0.00
+#      79 LOOP 80430/s avg=12us min=12us max=799us
+#      80 [189]  688W  577W  558W  614W  610W  pos:0.00
+#      81 [190]  688W  577W  559W  616W  610W  pos:0.00
+#      82 [191]  698W  573W  555W  611W  610W  pos:0.00
+#      83 [192]  688W  578W  557W  618W  608W  pos:0.00
+#      84 [193]  688W  576W  559W  615W  611W  pos:0.00
+#      85 LOOP 72194/s avg=13us min=12us max=102800us
+#      86 [194]  688W  576W  560W  615W  610W  pos:0.00
+#      87 [195]  688W  577W  559W  615W  611W  pos:0.00
+#      88 [196]  688W  577W  557W  615W  610W  pos:0.00
+#      89 [197]  689W  577W  557W  615W  611W  pos:0.00
+#      90 [198]  688W  577W  559W  614W  610W  pos:0.00
+#      91 LOOP 76341/s avg=13us min=12us max=51432us
+#      92 [199]  688W  577W  559W  614W  610W  pos:0.00
+#      93 [200]  688W  580W  560W  614W  611W  pos:0.00
+#      94 [201]  688W  576W  557W  615W  609W  pos:0.00
+#      95 [202]  688W  578W  558W  614W  609W  pos:0.00
+#      96 [203]  688W  576W  560W  617W  610W  pos:0.00
+#      97 LOOP 80440/s avg=12us min=12us max=800us
+#      98 [204]  701W  575W  556W  611W  605W  pos:0.00
+#      99 [205]  688W  576W  556W  615W  609W  pos:0.00
+#     100 [206]  688W  576W  560W  617W  609W  pos:0.00
+#     101 [207]  691W  578W  560W  614W  609W  pos:0.00
+#     102 [208]  688W  577W  558W  614W  612W  pos:0.00
+#     103 LOOP 76126/s avg=13us min=12us max=53990us
+#     104 [209]  688W  577W  559W  615W  611W  pos:0.00
+#     105 [210]  688W  577W  559W  614W  610W  pos:0.00
+#     106 [211]  688W  578W  559W  619W  611W  pos:0.00
+#     107 [212]  688W  578W  560W  614W  611W  pos:0.00
+#     108 [213]  687W  576W  558W  614W  610W  pos:0.00
+#     109 LOOP 76024/s avg=13us min=12us max=55408us
+#     110 [214]  688W  578W  557W  613W  612W  pos:0.00
+#     111 [215]  688W  578W  559W  617W  610W  pos:0.00
+#     112 [216]  688W  578W  557W  617W  608W  pos:0.00
+#     113 [217]  688W  577W  559W  616W  611W  pos:0.00
+#     114 [218]  688W  578W  557W  613W  611W  pos:0.00
+#     115 LOOP 80436/s avg=12us min=12us max=799us
+#     116 [219]  688W  578W  559W  614W  610W  pos:0.00
+#     117 [220]  688W  578W  559W  614W  610W  pos:0.00
+#     118 [221]  688W  577W  558W  618W  613W  pos:0.00
+#     119 [222]  688W  578W  560W  616W  611W  pos:0.00
+#     120 [223]  688W  578W  560W  616W  609W  pos:0.00
+#     121 LOOP 75658/s avg=13us min=12us max=59909us
+#     122 [224]  688W  576W  558W  619W  613W  pos:0.00
+#     123 [225]  688W  579W  558W  615W  611W  pos:0.00
+#     124 [226]  687W  578W  558W  613W  611W  pos:0.00
+#     125 [227]  688W  578W  558W  614W  611W  pos:0.00
+#     126 [228]  688W  577W  558W  616W  611W  pos:0.00
+#     127 LOOP 75447/s avg=13us min=12us max=62627us
+#     128 [229]  689W  576W  558W  614W  610W  pos:0.00
+#     129 [230]  689W  577W  558W  614W  613W  pos:0.00
+#     130 [231]  688W  577W  559W  617W  610W  pos:0.00
+#     131 [232]  688W  578W  560W  616W  611W  pos:0.00
+#     132 [233]  691W  576W  553W  612W  607W  pos:0.00
+#     133 LOOP 80428/s avg=12us min=12us max=799us
+#     134 [234]  688W  576W  560W  614W  609W  pos:0.00
+#     135 [235]  689W  576W  560W  615W  611W  pos:0.00
+#     136 [236]  688W  578W  557W  617W  610W  pos:0.00
+#     137 [237]  688W  577W  557W  614W  610W  pos:0.00
+#     138 [238]  688W  579W  559W  615W  610W  pos:0.00
+#     139 LOOP 75218/s avg=13us min=12us max=65355us
+#     140 [239]  688W  578W  560W  615W  610W  pos:0.00
+#     141 [240]  688W  579W  559W  614W  611W  pos:0.00
+#     142 [241]  688W  577W  558W  613W  611W  pos:0.00
+#     143 [242]  689W  577W  560W  614W  610W  pos:0.00
+#     144 [243]  688W  577W  560W  617W  611W  pos:0.00
+#     145 LOOP 74865/s avg=13us min=12us max=69715us
+#     146 [244]  688W  579W  557W  615W  612W  pos:0.00
+>>> --- log dump end ---
+>> 
