@@ -126,13 +126,13 @@ static void handle_command(const char* cmd) {
       reply(buf);
     }
 
-  // --- algo bangbang/pid ---
-  } else if (strcmp(cmd, "algo bangbang") == 0) {
+  // --- algo 0/1 (0=bangbang, 1=pid; 数字命令，比拼单词更短更好敲) ---
+  } else if (strcmp(cmd, "algo 0") == 0) {
     track_set_algo(TRACK_ALGO_BANGBANG);
-    reply(">>> Track algorithm: BANGBANG\r\n");
-  } else if (strcmp(cmd, "algo pid") == 0) {
+    reply(">>> Track algorithm: BANGBANG (0)\r\n");
+  } else if (strcmp(cmd, "algo 1") == 0) {
     track_set_algo(TRACK_ALGO_PID);
-    reply(">>> Track algorithm: PID\r\n");
+    reply(">>> Track algorithm: PID (1)\r\n");
 
   // --- pid kp/ki/kd N (float, PID增益) ---
   } else if (strncmp(cmd, "pid kp ", 7) == 0) {
@@ -334,7 +334,7 @@ static void handle_command(const char* cmd) {
     reply("    mediumratio N        inner wheel speed on medium turn CH3/CH6 (0~100%, default 35)\r\n");
     reply("    sharpratio N         inner wheel reverse ratio on sharp turn CH2/CH7 (0~100%, default 30)\r\n");
     reply("    xsharpratio N        inner wheel reverse ratio on hairpin turn CH1/CH8 (0~100%, default 60)\r\n");
-    reply("    algo bangbang/pid    select track algorithm (default bangbang)\r\n");
+    reply("    algo 0/1             select track algorithm (0=bangbang, 1=pid, default 0)\r\n");
     reply("    pid kp N             PID proportional gain (float, default 40.0)\r\n");
     reply("    pid ki N             PID integral gain (float, default 0.0)\r\n");
     reply("    pid kd N             PID derivative gain (float, default 5.0)\r\n");
