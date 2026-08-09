@@ -142,4 +142,111 @@ diff = 目标值 - 当前值               // 还差多少
 - 记忆：**slew 管"快慢/滞后"，ratio 管"转多狠"**。本车缺的是"转得够快够狠"，不是"太猛要压"，所以 slew 保持大。
 
 ---
-相关：`log15分析.md`(slew 是主因)、`log17分析.md`(弯道方案A)、`../设计/BANGBANG算法修改方案.md`
+
+## Q4：CH4+CH5 只有两个亮，明明是正对中心，为什么被判成 CROSS(十字)？
+
+**结论**：这是当前"十字检测"写得**太松**导致的误判。CH4+CH5 是正对中心，不是十字。
+
+### 为什么会误判
+代码里十字是这样判的(`track_module.cpp`)：
+```c
+// 左半(CH5..CH8)有白 且 右半(CH1..CH4)有白 → cross
+for (i=0..3) if(is_white[i]) right_any=true;   // CH1 CH2 CH3 CH4
+for (i=4..7) if(is_white[i]) left_any=true;    // CH5 CH6 CH7 CH8
+bool cross = left_any && right_any;
+```
+分界线正好切在 **CH4 与 CH5 之间**：CH4 属"右半"、CH5 属"左半"。所以最居中的 **CH4+CH5 恰好一边一个 → 被判成"左右都压线=十字"**。条件太宽，不是真有十字。
+
+### 实际影响
+- **多数时候没坏事**：CROSS 模式就是"直行 108/108 不转向"，正对中心本来也该直行，所以**行为碰巧对，只是标签错**(log 里看到 mode 9 其实是直行，容易看糊涂)。
+- **有时会吞掉该做的小修正**：只要线宽到跨过中线就触发。如线压 **CH3+CH4+CH5**(中心略偏右、该小右转)也满足"右半有 CH3/CH4 + 左半有 CH5"→ 判 CROSS → 直行**不修正**。这是真副作用。
+
+### 真正的十字该怎么判
+真十字/横杠**横穿整个赛道**，会让**两侧最外**的传感器都亮。判据应是"线跨得很宽"，不是"随便左右各一个"。两种干净写法：
+
+① 看两侧最外（推荐，最稳）：
+```c
+bool far_left  = is_white[6] || is_white[7];  // CH7/CH8
+bool far_right = is_white[0] || is_white[1];  // CH1/CH2
+bool cross = far_left && far_right;           // 两远端都亮才算十字
+```
+CH4+CH5、CH3+CH4+CH5 都不会误判；只有真横杠(两端都压)才触发。
+
+② 看白的数量：
+```c
+bool cross = (n_white >= 5);   // 至少5路同时白 = 横杠穿过
+```
+
+改完后 CH4/CH5(一个或两个)回落到 **STRAIGHT(mode 0)**：既直行、标签也对，线略偏时也能正常触发小修正。
+
+> 状态：**已按方案①改代码**（2026-08-09）。`track_update()` 里 cross 改为
+> `far_left(CH7||CH8) && far_right(CH1||CH2)`。CH4+CH5 现在回落到 STRAIGHT(mode 0)。待编译/实车验证。
+
+---
+
+## Q5：pattern 从 CH5 直接跳到 CH3+CH4，中间隔了 204ms，为什么没记"CH5→CH4"那条？
+
+**看的两行**（log23）：
+```
+line68  E24  10 0 57 108    CH5,      mode 0 STRAIGHT
+line69  E204 0C 4 97 63    CH3+CH4,  mode 4 MEDIUM_R  (dt=204ms)
+```
+
+**结论**：log **只在"档位(modeCode)变化"时记一行**，不是每次传感器 pattern 变化都记（`../设计/LOG精简方案.md`：事件触发+心跳，省内存缓冲）。
+
+代码逻辑：
+```c
+mode_changed  = (本次mode != 上次mode);
+heartbeat_due = 没变 且 距上条记录 >= 500ms;
+if (mode_changed || heartbeat_due) 才写一行;
+```
+
+**关键：CH5、CH4+CH5、CH4 全是同一个档 = STRAIGHT(0)**（中心两路不触发转向；CH4+CH5 在新 cross 逻辑下也不是 cross）。所以那 204ms 里线从 CH5 一路飘到 CH4，**档位一直是 0、没变 → 一行都不记**；直到线飘到 **CH3** 才第一次触发 MEDIUM_R(4)，这才记 line69。
+
+```
+CH5 → CH4+CH5 → CH4 → CH4+CH3
+ └───── 全是 mode 0 (STRAIGHT) ─────┘   ← 只记了开头 line68
+                                 └ CH3亮→mode4 → 记 line69
+```
+- line69 的 dt=204 = "档位停在 STRAIGHT"的持续时长；
+- 204ms < 500ms 心跳间隔，中间也没心跳补一条；
+- line69 的 patHex `0C` 只是"变成 MEDIUM_R 那一瞬间"的 pattern 快照，中间同档 pattern（CH4、CH4+CH5）没被采到。
+
+### 要记住的点
+**log 里的 patHex 不是"传感器随时间的完整轨迹"**，它只在**档位切换的瞬间**采样一次。长直行段（都是 mode 0）里线在中心几路间怎么飘是看不到的——档位没变就不记。要连续位置得靠"档位边界"推，或改成固定周期采样（log 会大很多）。
+
+---
+
+## Q6：MEDIUM_R 之后 134ms 直接变 LOST，没经过 SHARP/XSHARP，是 134ms 都没信号吗？
+
+**看的这段**（log23）：
+```
+line69  E204 0C 4 97 63    CH3+CH4, MEDIUM_R
+line70  E134 00 B 108 -37  全黑(00), LOST_R
+line71  E2   02 6 108 -43  CH2,     SHARP_R    ← 只隔 2ms
+line72  E389 04 4 97 57    CH3,     MEDIUM_R
+```
+
+### 纠两个误读
+**① 134ms 不是"没信号"，是 MEDIUM_R 保持了 134ms（这段一直有 CH3 正常信号）。**
+dt="距上一次切换"，写在**新状态那一行**。line70 的 `134` = 它前面 line69 的 MEDIUM_R **持续了 134ms**；这 134ms 档位一直是 MEDIUM_R、信号正常。LOST 是 134ms **末尾**才发生、从 line70 开始。
+
+**② 没有跳过 SHARP。line71 就是 SHARP_R(CH2)，在 LOST 之后仅 2ms 出现。**
+真实微观顺序：
+```
+CH3(MEDIUM_R, 134ms) → 全黑(LOST_R, 仅2ms) → CH2(SHARP_R)
+```
+line70 的 LOST 只持续 **2ms**（line71 的 dt=2）——不是"变 LOST 回不来"，而是**闪了 2ms 全黑，CH2 就接上了**。
+
+### 那 2ms 全黑=相邻两路之间的"缝"
+线从 CH3 挪到 CH2 途中，约 2ms 落在 **CH3 与 CH2 中间的缝**：那一瞬间**既没盖住 CH3、也没盖住 CH2**，两路都没过白阈值 → 8 路全黑 → 判 LOST_R 2ms。再挪一点盖上 CH2 就恢复 SHARP_R。
+这是**"细线 + 离散传感器"的正常现象**：线比传感器间距窄时，相邻两路交接会有极短"谁都没压实"的瞬间。代码里 LOST 不立刻停、而是"延续上次方向找线 + 1500ms 超时"，正是为了**桥接这几毫秒的相邻缝隙**。
+
+### 为什么没有 XSHARP(CH1/发卡)？
+线只往右到 **CH2 就回来了**（line72 又变回 CH3/MEDIUM_R），**没走到最右的 CH1**，自然没有 HAIRPIN_R。它在 CH3↔CH2 之间来回，没到极端边缘。
+
+### 一句话
+`134` 是 MEDIUM_R 的**持续时长**（信号正常），不是无信号；LOST 只是末尾 **2ms 的全黑闪断**（线落在 CH3/CH2 之间的缝），紧接着 line71 就是 SHARP_R；没到 CH1 所以没有发卡档。
+
+---
+相关：`log15分析.md`(slew 是主因)、`log17分析.md`(弯道方案A)、`../设计/LOG精简方案.md`(事件触发日志)、`../设计/BANGBANG算法修改方案.md`

@@ -97,6 +97,7 @@ void config_begin() {
   track_load_entries(entries, active);
 
   print_set_file(doc["file_log"] | print_file_enabled());
+  track_set_log_interval(doc["lograte"] | track_get_log_interval());  // 全局:内存日志采样周期
 
   // 长度必须严格等于当前SENSOR_COUNT才应用——如果以后SENSOR_COUNT又变了（比如加/减传感器路数），
   // 旧config.json里长度不匹配的threshold数组会按下标错位覆盖到错误的通道上（2026-07-29实测踩过
@@ -143,6 +144,7 @@ static void build_config_doc(JsonDocument& doc) {
   track_capture_active();   // 保证落盘/打印的是激活条目最新调参
   doc["active"] = track_algo_active();
   doc["file_log"] = print_file_enabled();
+  doc["lograte"] = track_get_log_interval();
 
   JsonArray algos = doc.createNestedArray("algos");
   for (int id = 0; id < ALGO_MAX; id++) {
@@ -180,8 +182,8 @@ void config_print() {
 
   // ---- 共用参数(两算法通用) ----
   cfg_out(">>> config —— 共用参数(两算法通用):\r\n");
-  snprintf(line, sizeof(line), "  active=%d  file_log=%s\r\n",
-           track_algo_active(), print_file_enabled() ? "ON" : "OFF");
+  snprintf(line, sizeof(line), "  active=%d  file_log=%s  lograte=%dms\r\n",
+           track_algo_active(), print_file_enabled() ? "ON" : "OFF", track_get_log_interval());
   cfg_out(line);
   build_int_array(arr, sizeof(arr), sensor_get_threshold);
   snprintf(line, sizeof(line), "  threshold=%s\r\n", arr); cfg_out(line);
@@ -237,10 +239,10 @@ void config_build_params_line(char* buf, size_t buf_size) {
   snprintf(buf, buf_size,
            ">>> PARAMS algoid=%d name=%s speed=%d algo=%s turn_ratio=%.2f medium_ratio=%.2f sharp_ratio=%.2f xsharp_ratio=%.2f "
            "medspeed=%.2f shpspeed=%.2f hpspeed=%.2f minpwm=%d "
-           "slew_rate=%.1f pid_kp=%.2f pid_ki=%.2f pid_kd=%.2f thresh=%s white=%s black=%s\r\n",
+           "slew_rate=%.1f lograte=%d pid_kp=%.2f pid_ki=%.2f pid_kd=%.2f thresh=%s white=%s black=%s\r\n",
            track_algo_active(), ae.name, _speed, track_get_algo() == TRACK_ALGO_PID ? "PID" : "BANGBANG",
            track_get_turn_ratio(), track_get_medium_ratio(), track_get_sharp_ratio(), track_get_xsharp_ratio(),
            track_get_medium_speed(), track_get_sharp_speed(), track_get_hairpin_speed(), track_get_min_move_pwm(),
-           track_get_slew_rate(), track_get_pid_kp(), track_get_pid_ki(), track_get_pid_kd(),
+           track_get_slew_rate(), track_get_log_interval(), track_get_pid_kp(), track_get_pid_ki(), track_get_pid_kd(),
            thresh, white, black);
 }

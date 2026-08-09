@@ -1,0 +1,556 @@
+help
+>>> Available commands:
+    print on/off         USB+BT data stream on/off
+    print usb on/off     USB data stream only
+    print bt  on/off     BT  data stream only
+    print file on/off    log data stream to /track.log.0~3 flash files, ring buffer w/ #ID (for when BT drops)
+    go N                 forward N sec (1~60)
+    back N               backward N sec (1~60)
+    spin left N          spin in place left N sec (1~60)
+    spin right N         spin in place right N sec (1~60)
+    stop                 stop motor immediately (also cancels track)
+    track on/off         start/stop autonomous line tracking (log: RAM-only during run until buffer nearly full, backed up to flash on off)
+    speed N              speed level (1~40, default 12, until changed)
+    turnspeed N          outer wheel ratio on sharp/hairpin turn (0~100%, default 65)
+    mediumratio N        inner wheel speed on medium turn CH3/CH6 (0~100%, default 35)
+    sharpratio N         inner wheel reverse ratio on sharp turn CH2/CH7 (0~100%, default 30)
+    xsharpratio N        inner wheel reverse ratio on hairpin turn CH1/CH8 (0~100%, default 60)
+    mediumspeed N        [bangbang] forward speed on medium turn CH3/CH6 (0~100%, default 85)
+    sharpspeed N         [bangbang] forward speed on sharp turn CH2/CH7 (0~100%, default 65)
+    hairpinspeed N       [bangbang] forward speed on hairpin turn CH1/CH8 (0~100%, default 50)
+    minpwm N             [bangbang] outer wheel min forward PWM, anti-stall floor (0~255, default 70)
+  -- algorithm manager (named param profiles, base=bangbang/pid) --
+    algolist             list algo profiles (id name base params, *=active)
+    algouse N            switch active profile to id N
+    algonew BB|PID name  create a new profile (default params)
+    algocopy N name      duplicate profile N to a new slot
+    algoname N name      rename profile N
+    algodel N            delete profile N (not active/last)
+    algo 0/1             alias: switch to id 0(bangbang)/1(pid) default profile
+    pid kp N             PID proportional gain (float, default 40.0)
+    pid ki N             PID integral gain (float, default 0.0)
+    pid kd N             PID derivative gain (float, default 5.0)
+    slewrate N           max PWM change per second (float, default 800, smaller = smoother/less zigzag)
+    whiteref CH VALUE    set CHx (1~8) white reference (analog weighting for PID), memory only
+    blackref CH VALUE    set CHx (1~8) black reference (analog weighting for PID), memory only
+    save                 save speed+turnspeed+mediumratio+sharpratio+xsharpratio+medium/sharp/hairpin speed+minpwm+algo+pid gains+slewrate+file log on/off+thresholds+white/black refs to flash (/config.json)
+    config               print current config as JSON
+    mem                  show free heap + ram log buffer size (auto-sized at boot, see ram_log_auto_init())
+    log dump             print current RAM log buffer over Serial (most recent track on run, no flash involved)
+    log clear            wipe all /track.log.* segments, #ID resets to 0
+    log status           show whether file log is on, capacity, next #ID, wrapped y/n
+    log format           print event/heartbeat line format + modeCode legend
+    threshold CH VALUE   set CHx (1~8) threshold, memory only
+    help                 show this help
+>> log dump
+>>> log line format: E<dt> <patHex> <modeCode> <L> <R>[ <err>]  (H=heartbeat instead of E)
+>>>   E行dt=ms since previous mode switch (not reset by heartbeats in between)
+>>>   H行dt=ms since previous logged line (heartbeat cadence)
+>>>   patHex=2-digit hex bitmask (bit7=CH8..bit0=CH1, 1=white); L/R=actual PWM sent; err=PID error (PID mode only)
+>>> modeCode: 0=STRAIGHT 1/2=unused(旧mild档已移除) 3=MEDIUM_L 4=MEDIUM_R 5=SHARP_L 6=SHARP_R
+>>>           7=HAIRPIN_L 8=HAIRPIN_R 9=CROSS A=LOST_L B=LOST_R C=LOST_STOP P=PID
+>>> markers: >>> TRACK_ON t=<ms> / >>> PARAMS ... / >>> TRACK_OFF t=<ms> elapsed=<ms>ms duration=<ms>ms lines=<n>
+>>>   elapsed=track on~off挂钟时长, duration=事件/心跳数据实际覆盖的时长(缓冲区提前写满时会比elapsed短)
+>>> --- RAM log dump start (500 lines, most recent track on so far) ---
+>>> TRACK_ON t=11510
+>>> PARAMS algoid=0 name=bb-default speed=16 algo=BANGBANG turn_ratio=1.00 medium_ratio=0.65 sharp_ratio=-0.40 xsharp_ratio=-0.60 medspeed=0.90 shpspeed=1.00 hpspeed=1.00 minpwm=70 slew_rate=50000.0 pid_kp=41.00 pid_ki=1.00 pid_kd=5.00 thresh=[1200,1100,1000,1100,1000,1100,1300,1300] white=[690,770,610,580,900,860,970,980] black=[2400,2300,2000,2030,2200,2100,2300,2400]
+E0 04 4 0 0
+E309 08 0 102 102
+E332 00 B 102 2
+E24 20 3 59 60
+E82 60 5 -40 102
+E322 20 3 59 91
+E64 00 A -40 102
+E152 08 0 60 102
+E90 0C 4 91 59
+E98 06 6 102 -40
+E106 03 8 102 -61
+E146 02 6 102 -40
+E144 04 4 91 59
+E170 08 0 102 102
+E220 00 B 102 2
+E58 20 3 59 60
+E2 00 A -40 102
+E2 20 3 59 91
+E52 60 5 -40 102
+E106 C0 7 -61 102
+E170 40 5 -40 102
+E136 20 3 59 91
+E64 00 A -40 102
+E84 10 0 60 102
+E44 00 A 2 102
+E14 08 0 60 102
+E310 0C 4 91 59
+E2 08 0 102 102
+E4 0C 4 91 59
+E2 08 0 102 102
+E4 0C 4 91 59
+E8 08 0 102 102
+E6 0C 4 91 59
+E4 08 0 102 102
+E8 0C 4 91 59
+E42 08 0 102 102
+E134 20 3 59 91
+E20 60 5 -40 102
+E48 E0 7 -61 102
+E356 40 5 -40 102
+E122 20 3 59 91
+E28 A0 7 -41 102
+E61 50 5 -40 102
+E36 10 0 60 102
+E4 50 5 2 102
+E8 10 0 60 102
+E28 50 5 2 102
+E12 18 0 60 102
+E96 48 5 2 102
+E8 08 0 60 102
+E10 0C 4 91 59
+E18 8C 7 -9 102
+E4 0C 4 39 59
+E108 06 6 102 -40
+E272 00 B 102 -40
+E4 04 4 91 59
+E148 08 0 102 102
+E78 58 5 2 102
+E2 D8 7 -61 102
+E166 00 A -40 102
+E362 80 7 -61 102
+E216 40 5 -40 102
+E126 20 3 59 91
+E66 00 A -40 102
+E84 10 0 60 102
+E149 0C 4 91 59
+E106 00 B 102 -40
+E12 02 6 102 -40
+E90 00 B 102 -40
+E154 02 6 102 -40
+E130 00 B 102 -40
+E14 04 4 91 59
+E138 08 0 102 102
+E88 48 5 2 102
+E4 08 0 60 102
+E104 00 A 2 102
+E10 08 0 60 102
+E2 28 3 59 91
+E2 00 A -40 102
+E2 20 3 59 91
+E64 60 5 -40 102
+E400 20 3 59 91
+E78 00 A -40 102
+E64 10 0 60 102
+E160 0C 4 91 59
+E117 06 6 102 -40
+E121 00 B 102 -40
+E2 02 6 102 -40
+E2 00 B 102 -40
+E16 02 6 102 -40
+E4 00 B 102 -40
+E164 02 6 102 -40
+E48 00 B 102 -40
+E24 04 4 91 59
+E146 08 0 102 102
+E174 30 3 59 91
+E16 70 5 -40 102
+E24 F0 7 -61 102
+E114 00 A -40 102
+E314 80 7 -61 102
+E251 40 5 -40 102
+E124 20 3 59 91
+E86 00 A -40 102
+E50 10 0 60 102
+E384 C8 7 2 102
+E2 48 5 -40 102
+E2 08 0 60 102
+E499 30 3 59 91
+E10 70 5 -40 102
+E10 E0 7 -61 102
+E102 00 A -40 102
+E478 80 7 -61 102
+E169 40 5 -40 102
+E108 20 3 59 91
+E56 00 A -40 102
+E2 20 3 59 91
+E2 00 A -40 102
+E32 10 0 60 102
+E116 0C 4 91 59
+E78 06 6 102 -40
+E76 03 8 102 -61
+E224 00 B 102 -40
+E8 02 6 102 -40
+E126 04 4 91 59
+E234 08 0 102 102
+E89 00 B 102 2
+E64 20 3 59 60
+E18 60 5 -40 102
+E80 C0 7 -61 102
+E280 40 5 -40 102
+E144 20 3 59 91
+E6 60 5 -40 102
+E2 20 3 59 91
+E76 00 A -40 102
+E26 10 0 60 102
+E175 0C 4 91 59
+E126 06 6 102 -40
+E392 04 4 91 59
+E136 08 0 102 102
+E134 30 3 59 91
+E46 60 5 -40 102
+E74 C0 7 -61 102
+E356 40 5 -40 102
+E136 20 3 59 91
+E104 00 A -40 102
+E40 10 0 60 102
+E393 00 A 2 102
+E32 20 3 59 91
+E72 60 5 -40 102
+E146 C0 7 -61 102
+E16 40 5 -40 102
+E10 E0 7 -61 102
+E14 40 5 -40 102
+E28 E0 7 -61 102
+E4 60 5 -40 102
+E12 E0 7 -61 102
+E6 60 5 -40 102
+E108 20 3 59 91
+E2 60 5 -40 102
+E4 20 3 59 91
+E4 60 5 -40 102
+E6 20 3 59 91
+E6 60 5 -40 102
+E2 20 3 59 91
+E62 10 0 102 102
+E54 50 5 2 102
+E10 10 0 60 102
+E22 50 5 2 102
+E2 D0 7 -61 102
+E2 50 5 -40 102
+E4 10 0 60 102
+E10 50 5 2 102
+E2 10 0 102 102
+E198 0C 4 91 59
+E170 08 0 102 102
+E138 38 3 59 91
+E8 78 5 -40 102
+E22 F0 7 -61 102
+E118 00 A -40 102
+E244 80 7 -61 102
+E186 40 5 -40 102
+E114 20 3 59 91
+E56 00 A -40 102
+E123 08 0 102 102
+E46 0C 4 91 59
+E76 06 6 102 -40
+E52 00 B 102 -40
+E28 01 8 102 -61
+E4 00 B 102 -40
+E4 01 8 102 -61
+E4 00 B 102 -40
+E281 01 8 102 -61
+E13 00 B 102 -40
+E10 01 8 102 -61
+E32 00 B 102 -40
+E6 01 8 102 -61
+E2 00 B 102 -40
+E48 02 6 102 -40
+E100 00 B 102 -40
+E8 04 4 91 59
+E26 84 7 -9 102
+E2 04 4 91 59
+E112 48 5 -9 102
+E2 08 0 91 102
+E186 00 A 2 102
+E6 20 3 59 91
+E54 60 5 -40 102
+E122 C0 7 -61 102
+E114 40 5 -40 102
+E157 20 3 59 91
+E63 00 A -40 102
+E82 10 0 60 102
+E140 0C 4 91 59
+E110 06 6 102 -40
+E113 00 B 102 -40
+E42 01 8 102 -61
+E2 00 B 102 -40
+E114 02 6 102 -40
+E118 00 B 102 -40
+E17 04 4 91 59
+E133 08 0 102 102
+E138 00 B 102 2
+E2 10 0 102 102
+E52 30 3 59 91
+E24 60 5 -40 102
+E26 E0 7 -61 102
+E132 00 A -40 102
+E222 80 7 -61 102
+E264 40 5 -40 102
+E128 20 3 59 91
+E88 00 A -40 102
+E2 20 3 59 91
+E4 00 A -40 102
+E56 10 0 60 102
+E407 48 5 2 102
+E14 08 0 60 102
+E486 30 3 59 91
+E16 60 5 -40 102
+E16 E0 7 -61 102
+E110 40 5 -40 102
+E4 00 A -40 102
+E429 80 7 -61 102
+E182 40 5 -40 102
+E112 20 3 59 91
+E66 00 A -40 102
+E20 10 0 60 102
+E144 0C 4 91 59
+E84 06 6 102 -40
+E80 03 8 102 -61
+E224 02 6 102 -40
+E94 04 4 91 59
+E168 08 0 102 102
+E174 00 B 102 2
+E2 10 0 102 102
+E12 00 B 102 2
+E70 20 3 59 60
+E36 60 5 -40 102
+E80 C0 7 -61 102
+E2 40 5 -40 102
+E2 C0 7 -61 102
+E228 40 5 -40 102
+E139 20 3 59 91
+E86 00 A -40 102
+E30 10 0 60 102
+E184 0C 4 91 59
+E128 06 6 102 -40
+E92 03 8 102 -61
+E120 02 6 102 -40
+E140 04 4 91 59
+E130 08 0 102 102
+E141 00 B 102 2
+E18 20 3 59 60
+E34 60 5 -40 102
+E50 C0 7 -61 102
+E379 40 5 -40 102
+E141 20 3 59 91
+E98 00 A -40 102
+E32 10 0 60 102
+E298 00 A 2 102
+E2 10 0 102 102
+E2 00 A 2 102
+E18 20 3 59 91
+E114 60 5 -40 102
+E274 20 3 59 91
+E6 60 5 -40 102
+E10 20 3 59 91
+E14 60 5 -40 102
+E12 20 3 59 91
+E6 A0 7 -41 102
+E4 20 3 39 91
+E8 A0 7 -41 102
+E6 20 3 39 91
+E8 60 5 -40 102
+E26 38 3 59 91
+E4 10 0 102 102
+E138 58 5 2 102
+E2 18 0 102 102
+E20 48 5 2 102
+E2 08 0 102 102
+E6 48 5 2 102
+E6 08 0 60 102
+E34 48 5 2 102
+E2 08 0 102 102
+E56 0C 4 91 59
+E374 08 0 102 102
+E56 38 3 59 91
+E4 78 5 -40 102
+E20 F8 7 -61 102
+E124 00 A -40 102
+E206 80 7 -61 102
+E182 40 5 -40 102
+E133 20 3 59 91
+E34 00 A -40 102
+E86 10 0 60 102
+E28 00 A 2 102
+E2 18 0 102 102
+E98 0C 4 91 59
+E102 06 6 102 -40
+E82 00 B 102 -40
+E72 01 8 102 -61
+E2 00 B 102 -40
+E16 01 8 102 -61
+E2 00 B 102 -40
+E20 01 8 102 -61
+E2 00 B 102 -40
+E26 01 8 102 -61
+E16 00 B 102 -40
+E24 01 8 102 -61
+E2 00 B 102 -40
+E58 02 6 102 -40
+E92 00 B 102 -40
+E14 04 4 91 59
+E138 08 0 102 102
+E22 48 5 2 102
+E4 08 0 60 102
+E142 00 A 2 102
+E18 20 3 59 91
+E52 60 5 9 102
+E112 C0 7 -61 102
+E122 40 5 -40 102
+E158 20 3 59 91
+E70 00 A -40 102
+E78 10 0 60 102
+E152 0C 4 91 59
+E160 02 6 102 -40
+E60 00 B 102 -40
+E18 01 8 102 -61
+E60 00 B 102 -40
+E4 01 8 102 -61
+E28 00 B 102 -40
+E72 02 6 102 -40
+E106 00 B 102 -40
+E16 04 4 91 59
+E2 00 B 102 -40
+E2 04 4 91 59
+E132 08 0 102 102
+E160 00 B 102 2
+E36 20 3 59 60
+E32 60 5 -40 102
+E36 E0 7 -61 102
+E497 40 5 -40 102
+E110 20 3 59 91
+E118 00 A -40 102
+E72 10 0 60 102
+E2 00 A -40 102
+E2 10 0 60 102
+E435 20 3 59 91
+E34 60 5 -40 102
+E2 20 3 59 91
+E8 60 5 -40 102
+E274 20 3 59 91
+E94 00 A -40 102
+E2 20 3 59 91
+E4 00 A -40 102
+E88 10 0 60 102
+E2 00 A -40 102
+E8 10 0 60 102
+E210 0C 4 91 59
+E326 18 0 102 102
+E18 38 3 59 91
+E20 78 5 -40 102
+E40 E0 7 -61 102
+E360 40 5 -40 102
+E122 20 3 59 91
+E76 00 A -40 102
+E61 10 0 102 102
+E167 0C 4 91 59
+E126 06 6 102 -40
+E148 00 B 102 -40
+E2 02 6 102 -40
+E8 00 B 102 -40
+E20 02 6 102 -40
+E12 00 B 102 -40
+E10 02 6 102 -40
+E132 00 B 102 -40
+E32 04 4 91 59
+E138 08 0 102 102
+E2 0C 4 91 59
+E3 08 0 102 102
+E159 50 5 2 102
+E2 10 0 102 102
+E64 00 A 2 102
+E6 20 3 59 91
+E64 60 5 -40 102
+E393 20 3 59 91
+E76 00 A -40 102
+E70 10 0 60 102
+E144 0C 4 91 59
+E90 06 6 102 -40
+E298 00 B 102 -40
+E22 04 4 91 59
+E170 08 0 102 102
+E172 00 B 102 2
+E2 20 3 59 91
+E28 60 5 -40 102
+E8 E0 7 -61 102
+E114 40 5 -40 102
+E2 00 A -40 102
+E394 80 7 -61 102
+E224 40 5 -40 102
+E124 20 3 59 91
+E76 00 A -40 102
+E40 10 0 60 102
+E182 0C 4 91 59
+E80 44 5 -9 102
+E4 04 4 60 59
+E78 06 6 102 -40
+E30 46 9 102 60
+E4 06 6 102 2
+E16 42 9 102 60
+E4 02 6 102 2
+E14 42 9 102 60
+E2 02 6 102 -40
+E204 00 B 102 -40
+E30 04 4 91 59
+E155 08 0 102 102
+E110 30 3 59 91
+E10 70 5 -40 102
+E6 F0 7 -61 102
+E146 40 5 -40 102
+E4 00 A -40 102
+E442 80 7 -61 102
+E208 40 5 -40 102
+E120 20 3 59 91
+E44 00 A -40 102
+E2 20 3 59 91
+E2 00 A -40 102
+E104 10 0 60 102
+E2 00 A -40 102
+E22 08 0 60 102
+E100 0C 4 91 59
+E106 06 6 102 -40
+E76 00 B 102 -40
+E52 01 8 102 -61
+E10 00 B 102 -40
+E4 01 8 102 -61
+E60 00 B 102 -40
+E8 01 8 102 -61
+E14 00 B 102 -40
+E62 02 6 102 -40
+E100 00 B 102 -40
+E16 04 4 91 59
+E155 08 0 102 102
+E206 00 B 102 2
+E14 40 5 2 60
+E2 00 A -40 102
+E2 40 5 -40 102
+E2 00 A -40 102
+E6 20 3 59 91
+E52 60 5 -40 102
+E390 20 3 10 91
+E74 00 A -40 102
+E86 10 0 60 102
+E149 0C 4 91 59
+E118 06 6 102 -40
+E108 00 B 102 -40
+E146 02 6 102 -40
+E114 00 B 102 -40
+E18 04 4 91 59
+E144 08 0 102 102
+E182 00 B 102 2
+E2 10 0 102 102
+E22 00 B 102 2
+H500 00 B 102 -40
+E820 80 7 2 60
+H501 F8 7 -61 102
+E545 FE 9 39 102
+H500 FF 9 102 102
+E658 FC 7 2 102
+E117 00 A -40 102
+H501 00 A -40 102
+H500 00 A -40 102
+E1502 00 C 0 0
+H500 00 C 0 0
+H501 00 C 0 0
+H500 00 C 0 0
+H501 00 C 0 0
+>>> TRACK_OFF t=59733 elapsed=48223ms duration=47722ms lines=499
+>>> --- RAM log dump end ---
+>> 

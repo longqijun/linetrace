@@ -138,7 +138,12 @@ void out_file(const char* msg) {
   _file_buf_len += n;
 }
 
-void out(const char* msg) { out_usb(msg); out_bt(msg); out_file(msg); }
+// out() 只走 USB/BT，【不再持续写 flash】。
+// 原来这里还调 out_file()，导致 loop 里每次 out()（LOOP统计每1s、传感器块每200ms）都往
+// flash 缓冲堆，满512字节就 file_flush() 写 flash，一次 flash program 阻塞 loop 几十~上百ms
+// （见"问题/01_loop周期性卡顿"）。BT已停用、print file 那套连续落盘已无意义，故去掉。
+// 唯一保留的 flash 写：track off 时 ram_log_flush_to_file() 直接调 out_file() 一次性落盘（不经过out()）。
+void out(const char* msg) { out_usb(msg); out_bt(msg); }
 
 void print_file_flush() { file_flush(); }
 

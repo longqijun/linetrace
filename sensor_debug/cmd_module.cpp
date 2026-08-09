@@ -320,6 +320,18 @@ static void handle_command(const char* cmd) {
       reply(buf);
     }
 
+  // --- lograte N (内存日志采样周期ms，越小越密越吃内存；见"LOG高频采样方案.md") ---
+  } else if (strncmp(cmd, "lograte ", 8) == 0) {
+    int v = atoi(cmd + 8);
+    if (v < 1) {
+      reply(">>> Log rate must be >= 1 (ms)\r\n");
+    } else {
+      track_set_log_interval(v);
+      char buf[80];
+      snprintf(buf, sizeof(buf), ">>> Log sample interval set to %d ms (smaller=denser, more RAM)\r\n", v);
+      reply(buf);
+    }
+
   // --- save ---
   } else if (strcmp(cmd, "save") == 0) {
     config_save();
@@ -492,6 +504,7 @@ static void handle_command(const char* cmd) {
     reply("    pid ki N             PID integral gain (float, default 0.0)\r\n");
     reply("    pid kd N             PID derivative gain (float, default 5.0)\r\n");
     reply("    slewrate N           max PWM change per second (float, default 800, smaller = smoother/less zigzag)\r\n");
+    reply("    lograte N            RAM log sample interval ms (default 10; 1=near per-loop/~1lap, 500=save RAM)\r\n");
     reply("    whiteref CH VALUE    set CHx (1~8) white reference (analog weighting for PID), memory only\r\n");
     reply("    blackref CH VALUE    set CHx (1~8) black reference (analog weighting for PID), memory only\r\n");
     reply("    save                 save speed+turnspeed+mediumratio+sharpratio+xsharpratio+medium/sharp/hairpin speed+minpwm+algo+pid gains+slewrate+file log on/off+thresholds+white/black refs to flash (/config.json)\r\n");

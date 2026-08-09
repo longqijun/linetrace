@@ -43,9 +43,10 @@
 // 丢线后延续最后转向方向找线的超时(ms)，超时未找回则停车
 #define LOST_TIMEOUT_MS 1500
 
-// 内存日志心跳间隔(ms)：档位没变化时，隔多久也补一条记录，避免长直道完全没有输出
-// （见"LOG精简方案.md"第3节，纯兜底用，不是核心信号——核心信号是档位变化的事件行）
-#define HEARTBEAT_INTERVAL_MS 500
+// 内存日志采样周期(ms)：档位没变化时，每隔这么久也补一条记录。
+// 运行时可调(lograte命令)：越小越密(近乎连续轨迹)，越大越省内存。见"LOG高频采样方案.md"。
+// 默认10ms=整趟连续轨迹又几乎不漏；1=每loop级(抓瞬态,内存约1圈);500=旧的省内存兜底。
+#define LOG_INTERVAL_DEFAULT 10
 
 // PID模式默认增益，均为起调参考值，未实车验证过，需实车试调
 // 误差用sensor_position_from()的-1.0~+1.0，输出直接是左右轮PWM的差速修正量（与base同量纲）
@@ -72,6 +73,7 @@
 #define SLEW_RATE_DEFAULT 800.0f
 
 static bool _on = false;
+static int _log_interval_ms = LOG_INTERVAL_DEFAULT;  // 内存日志采样周期(ms)，全局调试选项，lograte命令可调
 static char _last_mode_code = 0;   // 上一次记进内存log的modeCode，0=哨兵值(尚无记录)，用来判断这次是不是"档位变化"
 static unsigned long _last_log_ms = 0;    // 上一条内存log记录行(E或H)的时间戳，H行的dt用这个算，代表心跳节奏
 static unsigned long _last_switch_ms = 0; // 上一次真正档位切换(E)的时间戳，E行的dt用这个算，不受中间插入的心跳(H)打断——
@@ -373,6 +375,9 @@ void  track_set_pid_kd(float kd) { if (kd < 0.0f) kd = 0.0f; _pid_kd = kd; }
 float track_get_slew_rate() { return _slew_rate; }
 void  track_set_slew_rate(float rate) { if (rate < 1.0f) rate = 1.0f; _slew_rate = rate; }
 
+int  track_get_log_interval() { return _log_interval_ms; }
+void track_set_log_interval(int ms) { if (ms < 1) ms = 1; _log_interval_ms = ms; }
+
 void track_begin() {
   _on = false;
   _last_dir = 0;
@@ -467,11 +472,12 @@ void track_update() {
 
   bool lost = true;
   for (int i = 0; i < SENSOR_COUNT; i++) if (is_white[i]) { lost = false; break; }
-  // 十字路口/宽线：左右两侧（各半，按物理左右映射）同时压线，视为直行穿过，不触发转向
-  bool left_any = false, right_any = false;
-  for (int i = 0; i < SENSOR_COUNT / 2; i++) if (is_white[i]) right_any = true;
-  for (int i = SENSOR_COUNT / 2; i < SENSOR_COUNT; i++) if (is_white[i]) left_any = true;
-  bool cross = left_any && right_any;
+  // 十字路口/横杠：真十字会横穿整个赛道，让两侧"最外两路"都压线才算。
+  // 要求 CH7/CH8(左最外) 有一个亮 且 CH1/CH2(右最外) 有一个亮 → cross，直行穿过、不触发转向。
+  // （旧写法"左半任一 && 右半任一"分界切在CH4/CH5之间，会把居中的CH4+CH5误判成十字，见log解析答疑Q4）
+  bool far_left  = is_white[7] || is_white[6];   // CH8 或 CH7
+  bool far_right = is_white[0] || is_white[1];   // CH1 或 CH2
+  bool cross = far_left && far_right;
 
   int base = motor_level_to_pwm(config_get_speed());
   // sharp_turn仅供丢线找线(LOST)分支延续方向找线用，基于满速base，不受方案A的弯道降速影响
@@ -598,11 +604,11 @@ void track_update() {
 
   motor_set(pwm_l, pwm_r);
 
-  // 内存日志：事件触发（档位变化）+ 可选心跳，紧凑格式，见"LOG精简方案.md"第3节。
-  // track on期间只追加进内存缓冲区（ram_log_append），不碰flash；同时照常走USB/BT
-  // 实时输出（out_usb/out_bt各自受print set usb/bt on/off控制），方便测试时现场盯着看
+  // 内存日志：事件触发（档位变化）+ 定周期采样（每 _log_interval_ms 补一条），紧凑格式。
+  // track on期间【只写内存缓冲区 ram_log_append，不走串口】——高频采样时串口会拖慢loop、还刷屏，
+  // 且RAM写入是memcpy极快、不扰动控制。跑完用 log dump 一次性看。（见"LOG高频采样方案.md"）
   bool mode_changed = (mode_code != _last_mode_code);
-  bool heartbeat_due = !mode_changed && (now - _last_log_ms >= HEARTBEAT_INTERVAL_MS);
+  bool heartbeat_due = !mode_changed && (now - _last_log_ms >= (unsigned long)_log_interval_ms);
   if (mode_changed || heartbeat_due) {
     // E行的dt=距上一次真正切换的间隔（用_last_switch_ms算，不受中间插入的心跳打断，
     // 判断摆动频率最需要看的就是这个数）；H行的dt=距上一条记录行的间隔（心跳节奏本身）
@@ -629,8 +635,6 @@ void track_update() {
       snprintf(rec, sizeof(rec), "%c%lu %02X %c %d %d\r\n",
                ev, dt, pattern, mode_code, pwm_l, pwm_r);
     }
-    out_usb(rec);
-    out_bt(rec);
-    ram_log_append(rec);
+    ram_log_append(rec);   // 只写内存，不走串口（out_usb/out_bt 已去掉，避免高频采样拖慢loop）
   }
 }

@@ -156,7 +156,10 @@ void ram_log_dump() {
 void ram_log_flush_to_file() {
   if (_chunk_count == 0 || _line_count == 0) return;
 
-  if (!print_file_enabled()) print_set_file(true);  // 确保这次真的落盘，不依赖用户提前手动开
+  // 临时开启file写，落完盘【还原】——否则_file会一直粘着true，虽然out()已不再写flash(见问题01)，
+  // 但保持_file准确能让config/file_log如实反映用户设置、避免混淆。
+  bool was_file = print_file_enabled();
+  if (!was_file) print_set_file(true);  // 确保这次真的落盘，不依赖用户提前手动开
 
   char line[LOG_LINE_MAX];
   for (size_t c = 0; c <= _cur_chunk && c < _chunk_count; c++) {
@@ -175,6 +178,7 @@ void ram_log_flush_to_file() {
     }
   }
   print_file_flush();
+  if (!was_file) print_set_file(false);  // 还原到落盘前的状态，不粘到下一趟
 }
 
 unsigned long ram_log_line_count() {

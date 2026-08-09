@@ -85,3 +85,6 @@ void  track_set_pid_kd(float kd);  // 设置PID微分增益（>=0，仅内存，
 
 float track_get_slew_rate();          // 获取PWM限速值(单位/秒)，限制下发给电机的pwm_l/r每秒最多变化多少
 void  track_set_slew_rate(float rate); // 设置PWM限速值（>0，仅内存，供config_module持久化用）
+
+int  track_get_log_interval();        // 内存日志采样周期(ms)，越小越密(近连续轨迹)，越大越省内存
+void track_set_log_interval(int ms);  // 设置采样周期（>=1，仅内存，供config_module持久化用；lograte命令）

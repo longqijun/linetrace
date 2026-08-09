@@ -8,3 +8,4 @@ build/
 doc/日志分析/*.xlsx
 __pycache__/
 *.pyc
+doc/日志分析/*xlsx
