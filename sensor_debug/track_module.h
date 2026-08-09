@@ -9,6 +9,43 @@
 #define TRACK_ALGO_BANGBANG 0
 #define TRACK_ALGO_PID       1
 
+// ===== 算法管理单元（见"算法管理单元设计.md"）=====
+// 一个"算法条目(AlgoEntry)" = id + 名称 + 控制律(base) + 一整套参数(AlgoProfile)。
+// 管理单元持有多个条目(可多个共用同一 base，比如好几套 bangbang 调参)，一个"激活条目"决定当前跑什么。
+// 硬件标定(阈值/白黑参考/file_log)由 config_module 单独共享，不进条目。
+#define ALGO_MAX       8    // 最多条目数
+#define ALGO_NAME_LEN  16   // 名称最长15字符+结束符(UTF-8下约5汉字)
+
+// 参数集：一个 struct 装下所有 base 的字段，某 base 用不到的字段随存不影响别的 base。
+typedef struct {
+  int   speed;
+  float slew_rate;
+  float turn_ratio, medium_ratio, sharp_ratio, xsharp_ratio;  // bangbang 转向比例
+  float medium_speed, sharp_speed, hairpin_speed;             // bangbang 弯道分档降速(方案A)
+  int   min_move_pwm;                                          // bangbang 外轮最小前进PWM
+  float pid_kp, pid_ki, pid_kd;                                // pid 增益
+} AlgoProfile;
+
+typedef struct {
+  bool  used;                 // 槽位是否启用(支持删除留空)
+  char  name[ALGO_NAME_LEN];  // 算法名 algoname
+  int   base;                 // 控制律 TRACK_ALGO_BANGBANG / TRACK_ALGO_PID
+  AlgoProfile params;         // 该条目的参数集
+} AlgoEntry;
+
+// ---- 算法管理单元 API ----
+int  track_algo_active();                        // 当前激活条目 id
+bool track_algo_use(int id);                     // 切换激活条目(热切换,清PID历史)；无效/未启用返回false
+int  track_algo_new(int base, const char* name); // 新建条目(默认参数)，返回新id；满了返回-1
+int  track_algo_copy(int id, const char* name);  // 复制条目到空槽，返回新id；失败-1
+bool track_algo_rename(int id, const char* name);// 重命名；失败false
+bool track_algo_del(int id);                     // 删除(不能删激活/最后一个)；失败false
+bool track_algo_used(int id);                    // 槽位是否启用
+AlgoEntry track_get_entry(int id);               // 读某条目(供config/algolist)
+AlgoProfile track_default_params();              // 一套默认参数(供config新建条目兜底)
+void track_capture_active();                     // 把当前生效值回存进激活条目(save/print/list前调)
+void track_load_entries(const AlgoEntry* arr, int active_id); // config加载:整体灌入并应用激活条目
+
 void track_begin();          // 初始化，默认关闭
 void track_set(bool on);     // 开启/关闭巡线模式（关闭时会停止电机）
 bool track_is_on();          // 是否处于巡线模式
@@ -36,8 +73,8 @@ void  track_set_hairpin_speed(float ratio);
 int   track_get_min_move_pwm();           // 外轮最小前进PWM(防静摩擦堵转失速)，0~255
 void  track_set_min_move_pwm(int pwm);
 
-int  track_get_algo();       // 获取当前算法（TRACK_ALGO_BANGBANG/TRACK_ALGO_PID）
-void track_set_algo(int algo); // 设置算法，非法值回落到BANGBANG（仅内存，供config_module持久化用）
+int  track_get_algo();       // 获取当前激活条目的控制律（TRACK_ALGO_BANGBANG/TRACK_ALGO_PID）
+void track_set_algo(int algo); // 旧命令别名：切到 id0(BANGBANG)/id1(PID) 默认条目，等价 track_algo_use
 
 float track_get_pid_kp();          // 获取PID比例增益
 void  track_set_pid_kp(float kp);  // 设置PID比例增益（>=0，仅内存，供config_module持久化用）

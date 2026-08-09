@@ -170,13 +170,111 @@ static void handle_command(const char* cmd) {
       reply(buf);
     }
 
-  // --- algo 0/1 (0=bangbang, 1=pid; 数字命令，比拼单词更短更好敲) ---
+  // --- 算法管理单元（见"算法管理单元设计.md"）---
+  } else if (strcmp(cmd, "algolist") == 0) {
+    track_capture_active();   // 同步激活条目的生效值，保证列出的是最新
+    int act = track_algo_active();
+    reply(">>> algos (id name base params | *=active):\r\n");
+    for (int id = 0; id < ALGO_MAX; id++) {
+      if (!track_algo_used(id)) continue;
+      AlgoEntry e = track_get_entry(id);
+      char extra[72];
+      if (e.base == TRACK_ALGO_PID)
+        snprintf(extra, sizeof(extra), "kp=%.1f ki=%.1f kd=%.1f", e.params.pid_kp, e.params.pid_ki, e.params.pid_kd);
+      else
+        snprintf(extra, sizeof(extra), "sharp=%.2f xsharp=%.2f minpwm=%d", e.params.sharp_ratio, e.params.xsharp_ratio, e.params.min_move_pwm);
+      char buf[176];
+      snprintf(buf, sizeof(buf), "  %c%d %-15s %s speed=%d slew=%.0f %s\r\n",
+               id == act ? '*' : ' ', id, e.name, e.base == TRACK_ALGO_PID ? "PID" : "BB",
+               e.params.speed, e.params.slew_rate, extra);
+      reply(buf);
+      // 激活条目：额外打印一行"全部参数"，方便直接查看当前算法的完整调参
+      if (id == act) {
+        char full[224];
+        snprintf(full, sizeof(full),
+                 "     ^full: turn=%.2f medium=%.2f sharp=%.2f xsharp=%.2f medspeed=%.2f shpspeed=%.2f hpspeed=%.2f minpwm=%d | pid kp=%.1f ki=%.1f kd=%.1f\r\n",
+                 e.params.turn_ratio, e.params.medium_ratio, e.params.sharp_ratio, e.params.xsharp_ratio,
+                 e.params.medium_speed, e.params.sharp_speed, e.params.hairpin_speed, e.params.min_move_pwm,
+                 e.params.pid_kp, e.params.pid_ki, e.params.pid_kd);
+        reply(full);
+      }
+    }
+
+  } else if (strncmp(cmd, "algouse ", 8) == 0) {
+    int id = atoi(cmd + 8);
+    if (track_algo_use(id)) {
+      AlgoEntry e = track_get_entry(id);
+      char buf[80];
+      snprintf(buf, sizeof(buf), ">>> Active algo -> id %d '%s' (%s)\r\n", id, e.name, e.base == TRACK_ALGO_PID ? "PID" : "BB");
+      reply(buf);
+    } else {
+      reply(">>> algouse failed: invalid or unused id (see algolist)\r\n");
+    }
+
+  } else if (strncmp(cmd, "algonew ", 8) == 0) {
+    const char* rest = cmd + 8;
+    int base = -1;
+    const char* namep = NULL;
+    if (strncmp(rest, "BB ", 3) == 0 || strncmp(rest, "bb ", 3) == 0) { base = TRACK_ALGO_BANGBANG; namep = rest + 3; }
+    else if (strncmp(rest, "PID ", 4) == 0 || strncmp(rest, "pid ", 4) == 0) { base = TRACK_ALGO_PID; namep = rest + 4; }
+    if (base < 0) {
+      reply(">>> Usage: algonew BB|PID <name>\r\n");
+    } else {
+      while (*namep == ' ') namep++;
+      if (*namep == '\0') {
+        reply(">>> algonew needs a name\r\n");
+      } else {
+        int id = track_algo_new(base, namep);
+        if (id < 0) reply(">>> algonew failed: no free slot (ALGO_MAX reached)\r\n");
+        else {
+          char buf[96];
+          snprintf(buf, sizeof(buf), ">>> Created algo id %d '%s' (%s); 'algouse %d' to switch\r\n",
+                   id, namep, base == TRACK_ALGO_PID ? "PID" : "BB", id);
+          reply(buf);
+        }
+      }
+    }
+
+  } else if (strncmp(cmd, "algocopy ", 9) == 0) {
+    const char* p = cmd + 9;
+    int id = atoi(p);
+    while (*p == ' ') p++;            // 跳过前导空格
+    while (*p && *p != ' ') p++;      // 跳过 id 数字
+    while (*p == ' ') p++;            // 跳到名称
+    if (*p == '\0') {
+      reply(">>> Usage: algocopy N <name>\r\n");
+    } else {
+      int nid = track_algo_copy(id, p);
+      if (nid < 0) reply(">>> algocopy failed: bad id or no free slot\r\n");
+      else { char buf[96]; snprintf(buf, sizeof(buf), ">>> Copied id %d -> new id %d '%s'\r\n", id, nid, p); reply(buf); }
+    }
+
+  } else if (strncmp(cmd, "algoname ", 9) == 0) {
+    const char* p = cmd + 9;
+    int id = atoi(p);
+    while (*p == ' ') p++;
+    while (*p && *p != ' ') p++;
+    while (*p == ' ') p++;
+    if (*p == '\0') {
+      reply(">>> Usage: algoname N <name>\r\n");
+    } else if (track_algo_rename(id, p)) {
+      char buf[80]; snprintf(buf, sizeof(buf), ">>> Renamed id %d -> '%s'\r\n", id, p); reply(buf);
+    } else {
+      reply(">>> algoname failed: invalid or unused id\r\n");
+    }
+
+  } else if (strncmp(cmd, "algodel ", 8) == 0) {
+    int id = atoi(cmd + 8);
+    if (track_algo_del(id)) { char buf[64]; snprintf(buf, sizeof(buf), ">>> Deleted algo id %d\r\n", id); reply(buf); }
+    else reply(">>> algodel failed: can't delete active/last, or invalid id\r\n");
+
+  // --- algo 0/1 旧命令别名：切到默认条目 id0(bangbang)/id1(pid) ---
   } else if (strcmp(cmd, "algo 0") == 0) {
     track_set_algo(TRACK_ALGO_BANGBANG);
-    reply(">>> Track algorithm: BANGBANG (0)\r\n");
+    reply(">>> Active algo -> id 0 (bangbang default) [alias; use 'algouse N']\r\n");
   } else if (strcmp(cmd, "algo 1") == 0) {
     track_set_algo(TRACK_ALGO_PID);
-    reply(">>> Track algorithm: PID (1)\r\n");
+    reply(">>> Active algo -> id 1 (pid default) [alias; use 'algouse N']\r\n");
 
   // --- pid kp/ki/kd N (float, PID增益) ---
   } else if (strncmp(cmd, "pid kp ", 7) == 0) {
@@ -382,7 +480,14 @@ static void handle_command(const char* cmd) {
     reply("    sharpspeed N         [bangbang] forward speed on sharp turn CH2/CH7 (0~100%, default 65)\r\n");
     reply("    hairpinspeed N       [bangbang] forward speed on hairpin turn CH1/CH8 (0~100%, default 50)\r\n");
     reply("    minpwm N             [bangbang] outer wheel min forward PWM, anti-stall floor (0~255, default 70)\r\n");
-    reply("    algo 0/1             select track algorithm (0=bangbang, 1=pid, default 0)\r\n");
+    reply("  -- algorithm manager (named param profiles, base=bangbang/pid) --\r\n");
+    reply("    algolist             list algo profiles (id name base params, *=active)\r\n");
+    reply("    algouse N            switch active profile to id N\r\n");
+    reply("    algonew BB|PID name  create a new profile (default params)\r\n");
+    reply("    algocopy N name      duplicate profile N to a new slot\r\n");
+    reply("    algoname N name      rename profile N\r\n");
+    reply("    algodel N            delete profile N (not active/last)\r\n");
+    reply("    algo 0/1             alias: switch to id 0(bangbang)/1(pid) default profile\r\n");
     reply("    pid kp N             PID proportional gain (float, default 40.0)\r\n");
     reply("    pid ki N             PID integral gain (float, default 0.0)\r\n");
     reply("    pid kd N             PID derivative gain (float, default 5.0)\r\n");

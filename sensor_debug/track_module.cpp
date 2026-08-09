@@ -7,6 +7,7 @@
 #include <Arduino.h>
 #include <stdio.h>
 #include <stdint.h>
+#include <string.h>
 #include <math.h>
 
 // 8路传感器差速bang-bang（见"8路传感器方案.md"）：中心两路直行 + 对称三档转向
@@ -101,6 +102,66 @@ static float _slew_rate = SLEW_RATE_DEFAULT;
 static float _slew_pwm_l = 0.0f;           // 限速后当前实际下发的pwm_l/r（浮点存，避免整数截断累积误差）
 static float _slew_pwm_r = 0.0f;
 static unsigned long _slew_last_ms = 0;    // 上一次做限速计算的时刻，用于算dt
+
+// ===== 算法管理单元（见"算法管理单元设计.md"）=====
+// _algos[]为条目数组，_active为激活条目id。运行时"生效值"仍是上面各active静态量(+config的_speed)，
+// 它们是 _algos[_active].params 的镜像：切换条目时capture旧、apply新；save/list前capture同步。
+// 静态默认与各active静态量默认一致，保证无config文件时也自洽。speed默认12=config的DEFAULT_SPEED。
+#define ALGO_DEFAULT_PARAMS \
+  { 12, SLEW_RATE_DEFAULT, \
+    TURN_OUTER_RATIO_DEFAULT, TURN_RATIO_MEDIUM_DEFAULT, TURN_RATIO_SHARP_DEFAULT, TURN_RATIO_XSHARP_DEFAULT, \
+    TURN_SPEED_MEDIUM_DEFAULT, TURN_SPEED_SHARP_DEFAULT, TURN_SPEED_HAIRPIN_DEFAULT, MOTOR_MIN_MOVE_PWM_DEFAULT, \
+    PID_KP_DEFAULT, PID_KI_DEFAULT, PID_KD_DEFAULT }
+
+static AlgoEntry _algos[ALGO_MAX] = {
+  { true, "bb-default",  TRACK_ALGO_BANGBANG, ALGO_DEFAULT_PARAMS },
+  { true, "pid-default", TRACK_ALGO_PID,      ALGO_DEFAULT_PARAMS },
+  // 其余槽位由静态零初始化：used=false
+};
+static int _active = 0;   // 激活条目id
+
+AlgoProfile track_default_params() {
+  AlgoProfile p = ALGO_DEFAULT_PARAMS;
+  return p;
+}
+
+static void entry_set_name(char* dst, const char* name) {
+  if (!name) name = "";
+  strncpy(dst, name, ALGO_NAME_LEN - 1);
+  dst[ALGO_NAME_LEN - 1] = '\0';
+}
+
+// 当前生效值 <-> 档案 的搬运。speed存在config_module(_speed)，这里通过config_get/set_speed同步。
+static void profile_capture(AlgoProfile* p) {
+  p->speed        = config_get_speed();
+  p->slew_rate    = _slew_rate;
+  p->turn_ratio   = _turn_outer_ratio;
+  p->medium_ratio = _medium_ratio;
+  p->sharp_ratio  = _sharp_ratio;
+  p->xsharp_ratio = _xsharp_ratio;
+  p->medium_speed = _medium_speed;
+  p->sharp_speed  = _sharp_speed;
+  p->hairpin_speed= _hairpin_speed;
+  p->min_move_pwm = _min_move_pwm;
+  p->pid_kp       = _pid_kp;
+  p->pid_ki       = _pid_ki;
+  p->pid_kd       = _pid_kd;
+}
+static void profile_apply(const AlgoProfile* p) {
+  config_set_speed(p->speed);
+  _slew_rate      = p->slew_rate;
+  _turn_outer_ratio = p->turn_ratio;
+  _medium_ratio   = p->medium_ratio;
+  _sharp_ratio    = p->sharp_ratio;
+  _xsharp_ratio   = p->xsharp_ratio;
+  _medium_speed   = p->medium_speed;
+  _sharp_speed    = p->sharp_speed;
+  _hairpin_speed  = p->hairpin_speed;
+  _min_move_pwm   = p->min_move_pwm;
+  _pid_kp         = p->pid_kp;
+  _pid_ki         = p->pid_ki;
+  _pid_kd         = p->pid_kd;
+}
 
 static void pid_reset() {
   _pid_integral = 0.0f;
@@ -206,10 +267,100 @@ int track_get_algo() {
   return _algo;
 }
 
+// 旧命令别名：切到默认条目 id0(BANGBANG) / id1(PID)
 void track_set_algo(int algo) {
-  if (algo != TRACK_ALGO_BANGBANG && algo != TRACK_ALGO_PID) algo = TRACK_ALGO_BANGBANG;
-  _algo = algo;
-  pid_reset();   // 切换算法时清掉上一次的积分/微分历史，避免用旧模式的误差历史误导新模式
+  track_algo_use(algo == TRACK_ALGO_PID ? 1 : 0);
+}
+
+int  track_algo_active() { return _active; }
+bool track_algo_used(int id) { return (id >= 0 && id < ALGO_MAX && _algos[id].used); }
+
+AlgoEntry track_get_entry(int id) {
+  if (id < 0 || id >= ALGO_MAX) id = _active;
+  return _algos[id];
+}
+
+// 把当前生效值回存进激活条目（config_save/print/algolist前调，保证读到的是最新调参）
+void track_capture_active() {
+  profile_capture(&_algos[_active].params);
+}
+
+// 切换激活条目：存回旧激活、载入新激活参数+控制律，清PID历史。热切换(正在跑也允许)。
+bool track_algo_use(int id) {
+  if (id < 0 || id >= ALGO_MAX || !_algos[id].used) return false;
+  profile_capture(&_algos[_active].params);
+  _active = id;
+  profile_apply(&_algos[_active].params);
+  _algo = _algos[_active].base;
+  pid_reset();
+  return true;
+}
+
+// 新建条目(默认参数)于第一个空槽，返回新id；满了返回-1。不改变激活条目。
+int track_algo_new(int base, const char* name) {
+  if (base != TRACK_ALGO_BANGBANG && base != TRACK_ALGO_PID) base = TRACK_ALGO_BANGBANG;
+  for (int i = 0; i < ALGO_MAX; i++) {
+    if (!_algos[i].used) {
+      _algos[i].used = true;
+      _algos[i].base = base;
+      entry_set_name(_algos[i].name, name);
+      _algos[i].params = track_default_params();
+      return i;
+    }
+  }
+  return -1;
+}
+
+// 复制条目N到空槽（便于在现有调参上派生变体），返回新id；失败-1。
+int track_algo_copy(int id, const char* name) {
+  if (id < 0 || id >= ALGO_MAX || !_algos[id].used) return -1;
+  if (id == _active) profile_capture(&_algos[_active].params);  // 先同步激活条目生效值再复制
+  for (int i = 0; i < ALGO_MAX; i++) {
+    if (!_algos[i].used) {
+      _algos[i] = _algos[id];
+      entry_set_name(_algos[i].name, name);
+      return i;
+    }
+  }
+  return -1;
+}
+
+bool track_algo_rename(int id, const char* name) {
+  if (id < 0 || id >= ALGO_MAX || !_algos[id].used) return false;
+  entry_set_name(_algos[id].name, name);
+  return true;
+}
+
+// 删除条目：不能删激活条目，也不能删最后一个可用条目。
+bool track_algo_del(int id) {
+  if (id < 0 || id >= ALGO_MAX || !_algos[id].used) return false;
+  if (id == _active) return false;
+  int cnt = 0;
+  for (int i = 0; i < ALGO_MAX; i++) if (_algos[i].used) cnt++;
+  if (cnt <= 1) return false;
+  _algos[id].used = false;
+  return true;
+}
+
+// config加载：整体灌入条目数组并应用激活条目（含兜底：至少一个可用、激活id有效）。
+void track_load_entries(const AlgoEntry* arr, int active_id) {
+  for (int i = 0; i < ALGO_MAX; i++) _algos[i] = arr[i];
+  bool any = false;
+  for (int i = 0; i < ALGO_MAX; i++) if (_algos[i].used) { any = true; break; }
+  if (!any) {
+    _algos[0].used = true;
+    _algos[0].base = TRACK_ALGO_BANGBANG;
+    entry_set_name(_algos[0].name, "bb-default");
+    _algos[0].params = track_default_params();
+  }
+  if (active_id < 0 || active_id >= ALGO_MAX || !_algos[active_id].used) {
+    active_id = 0;
+    for (int i = 0; i < ALGO_MAX; i++) if (_algos[i].used) { active_id = i; break; }
+  }
+  _active = active_id;
+  profile_apply(&_algos[_active].params);
+  _algo = _algos[_active].base;
+  pid_reset();
 }
 
 float track_get_pid_kp() { return _pid_kp; }

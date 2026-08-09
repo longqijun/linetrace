@@ -2,7 +2,7 @@
 
 // 单条log行的最大长度（含结尾\r\n和'\0'）。print_module/track_module/config_module/
 // ram_log_module共用这一个常量，改行长上限只用改这一处（见"LOG精简方案.md"）
-#define LOG_LINE_MAX 384
+#define LOG_LINE_MAX 448  // PARAMS行含算法id/name+全部参数+3个标定数组，留足余量
 
 // 输出通道：USB / BT / Flash文件（/track.log.0 ~ .N-1）三选任意组合开启
 // 文件通道给BT不稳定/断连场景用：track_module的调试log正常走out()同时写进文件，
