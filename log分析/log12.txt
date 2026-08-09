@@ -1,0 +1,614 @@
+help
+>>> Unknown command, type help for command list
+>> help
+>>> Available commands:
+    print on/off         USB+BT data stream on/off
+    print usb on/off     USB data stream only
+    print bt  on/off     BT  data stream only
+    print file on/off    log data stream to /track.log.0~3 flash files, ring buffer w/ #ID (for when BT drops)
+    go N                 forward N sec (1~60)
+    back N               backward N sec (1~60)
+    spin left N          spin in place left N sec (1~60)
+    spin right N         spin in place right N sec (1~60)
+    stop                 stop motor immediately (also cancels track)
+    track on/off         start/stop autonomous line tracking (log: RAM-only during run until buffer nearly full, backed up to flash on off)
+    speed N              speed level (1~40, default 12, until changed)
+    turnspeed N          outer wheel ratio on sharp/hairpin turn (0~100%, default 65)
+    mediumratio N        inner wheel speed on medium turn CH3/CH6 (0~100%, default 35)
+    sharpratio N         inner wheel reverse ratio on sharp turn CH2/CH7 (0~100%, default 30)
+    xsharpratio N        inner wheel reverse ratio on hairpin turn CH1/CH8 (0~100%, default 60)
+    algo 0/1             select track algorithm (0=bangbang, 1=pid, default 0)
+    pid kp N             PID proportional gain (float, default 40.0)
+    pid ki N             PID integral gain (float, default 0.0)
+    pid kd N             PID derivative gain (float, default 5.0)
+    slewrate N           max PWM change per second (float, default 800, smaller = smoother/less zigzag)
+    whiteref CH VALUE    set CHx (1~8) white reference (analog weighting for PID), memory only
+    blackref CH VALUE    set CHx (1~8) black reference (analog weighting for PID), memory only
+    save                 save speed+turnspeed+mediumratio+sharpratio+xsharpratio+algo+pid gains+slewrate+file log on/off+thresholds+white/black refs to flash (/config.json)
+    config               print current config as JSON
+    mem                  show free heap + ram log buffer size (auto-sized at boot, see ram_log_auto_init())
+    log dump             print current RAM log buffer over Serial (most recent track on run, no flash involved)
+    log clear            wipe all /track.log.* segments, #ID resets to 0
+    log status           show whether file log is on, capacity, next #ID, wrapped y/n
+    log format           print event/heartbeat line format + modeCode legend
+    threshold CH VALUE   set CHx (1~8) threshold, memory only
+    help                 show this help
+>> log dump
+>>> log line format: E<dt> <patHex> <modeCode> <L> <R>[ <err>]  (H=heartbeat instead of E)
+>>>   E行dt=ms since previous mode switch (not reset by heartbeats in between)
+>>>   H行dt=ms since previous logged line (heartbeat cadence)
+>>>   patHex=2-digit hex bitmask (bit7=CH8..bit0=CH1, 1=white); L/R=actual PWM sent; err=PID error (PID mode only)
+>>> modeCode: 0=STRAIGHT 1=LEFT(mild) 2=RIGHT(mild) 3=MEDIUM_L 4=MEDIUM_R 5=SHARP_L 6=SHARP_R
+>>>           7=HAIRPIN_L 8=HAIRPIN_R 9=CROSS A=LOST_L B=LOST_R C=LOST_STOP P=PID
+>>> markers: >>> TRACK_ON t=<ms> / >>> PARAMS ... / >>> TRACK_OFF t=<ms> elapsed=<ms>ms duration=<ms>ms lines=<n>
+>>>   elapsed=track on~off挂钟时长, duration=事件/心跳数据实际覆盖的时长(缓冲区提前写满时会比elapsed短)
+>>> No log captured yet (run track on first)
+>> log dump
+>>> log line format: E<dt> <patHex> <modeCode> <L> <R>[ <err>]  (H=heartbeat instead of E)
+>>>   E行dt=ms since previous mode switch (not reset by heartbeats in between)
+>>>   H行dt=ms since previous logged line (heartbeat cadence)
+>>>   patHex=2-digit hex bitmask (bit7=CH8..bit0=CH1, 1=white); L/R=actual PWM sent; err=PID error (PID mode only)
+>>> modeCode: 0=STRAIGHT 1=LEFT(mild) 2=RIGHT(mild) 3=MEDIUM_L 4=MEDIUM_R 5=SHARP_L 6=SHARP_R
+>>>           7=HAIRPIN_L 8=HAIRPIN_R 9=CROSS A=LOST_L B=LOST_R C=LOST_STOP P=PID
+>>> markers: >>> TRACK_ON t=<ms> / >>> PARAMS ... / >>> TRACK_OFF t=<ms> elapsed=<ms>ms duration=<ms>ms lines=<n>
+>>>   elapsed=track on~off挂钟时长, duration=事件/心跳数据实际覆盖的时长(缓冲区提前写满时会比elapsed短)
+>>> No log captured yet (run track on first)
+>> log dump
+>>> log line format: E<dt> <patHex> <modeCode> <L> <R>[ <err>]  (H=heartbeat instead of E)
+>>>   E行dt=ms since previous mode switch (not reset by heartbeats in between)
+>>>   H行dt=ms since previous logged line (heartbeat cadence)
+>>>   patHex=2-digit hex bitmask (bit7=CH8..bit0=CH1, 1=white); L/R=actual PWM sent; err=PID error (PID mode only)
+>>> modeCode: 0=STRAIGHT 1=LEFT(mild) 2=RIGHT(mild) 3=MEDIUM_L 4=MEDIUM_R 5=SHARP_L 6=SHARP_R
+>>>           7=HAIRPIN_L 8=HAIRPIN_R 9=CROSS A=LOST_L B=LOST_R C=LOST_STOP P=PID
+>>> markers: >>> TRACK_ON t=<ms> / >>> PARAMS ... / >>> TRACK_OFF t=<ms> elapsed=<ms>ms duration=<ms>ms lines=<n>
+>>>   elapsed=track on~off挂钟时长, duration=事件/心跳数据实际覆盖的时长(缓冲区提前写满时会比elapsed短)
+>>> No log captured yet (run track on first)
+>> config
+{"speed":17,"turn_ratio":0.65,"medium_ratio":0.35,"sharp_ratio":-0.4,"xsharp_ratio":-0.6,"algo":1,"pid_kp":40,"pid_ki":0,"pid_kd":5,"slew_rate":600,"file_log":true,"threshold":[1666,1580,1800,2000,1130,1040,1200,1200],"white_ref":[1111,1100,640,1280,560,580,690,600],"black_ref":[2600,2400,2200,2100,2100,2000,2300,2400]}
+>> config
+{"speed":17,"turn_ratio":0.65,"medium_ratio":0.35,"sharp_ratio":-0.4,"xsharp_ratio":-0.6,"algo":1,"pid_kp":40,"pid_ki":0,"pid_kd":5,"slew_rate":600,"file_log":true,"threshold":[1666,1580,1800,2000,1130,1040,1200,1200],"white_ref":[1111,1100,640,1280,560,580,690,600],"black_ref":[2600,2400,2200,2100,2100,2000,2300,2400]}
+>> config
+{"speed":17,"turn_ratio":0.65,"medium_ratio":0.35,"sharp_ratio":-0.4,"xsharp_ratio":-0.6,"algo":1,"pid_kp":40,"pid_ki":0,"pid_kd":5,"slew_rate":600,"file_log":true,"threshold":[1666,1580,1800,2000,1130,1040,1200,1200],"white_ref":[1111,1100,640,1280,560,580,690,600],"black_ref":[2600,2400,2200,2100,2100,2000,2300,2400]}
+>> help
+>>> Available commands:
+    print on/off         USB+BT data stream on/off
+    print usb on/off     USB data stream only
+    print bt  on/off     BT  data stream only
+    print file on/off    log data stream to /track.log.0~3 flash files, ring buffer w/ #ID (for when BT drops)
+    go N                 forward N sec (1~60)
+    back N               backward N sec (1~60)
+    spin left N          spin in place left N sec (1~60)
+    spin right N         spin in place right N sec (1~60)
+    stop                 stop motor immediately (also cancels track)
+    track on/off         start/stop autonomous line tracking (log: RAM-only during run until buffer nearly full, backed up to flash on off)
+    speed N              speed level (1~40, default 12, until changed)
+    turnspeed N          outer wheel ratio on sharp/hairpin turn (0~100%, default 65)
+    mediumratio N        inner wheel speed on medium turn CH3/CH6 (0~100%, default 35)
+    sharpratio N         inner wheel reverse ratio on sharp turn CH2/CH7 (0~100%, default 30)
+    xsharpratio N        inner wheel reverse ratio on hairpin turn CH1/CH8 (0~100%, default 60)
+    algo 0/1             select track algorithm (0=bangbang, 1=pid, default 0)
+    pid kp N             PID proportional gain (float, default 40.0)
+    pid ki N             PID integral gain (float, default 0.0)
+    pid kd N             PID derivative gain (float, default 5.0)
+    slewrate N           max PWM change per second (float, default 800, smaller = smoother/less zigzag)
+    whiteref CH VALUE    set CHx (1~8) white reference (analog weighting for PID), memory only
+    blackref CH VALUE    set CHx (1~8) black reference (analog weighting for PID), memory only
+    save                 save speed+turnspeed+mediumratio+sharpratio+xsharpratio+algo+pid gains+slewrate+file log on/off+thresholds+white/black refs to flash (/config.json)
+    config               print current config as JSON
+    mem                  show free heap + ram log buffer size (auto-sized at boot, see ram_log_auto_init())
+    log dump             print current RAM log buffer over Serial (most recent track on run, no flash involved)
+    log clear            wipe all /track.log.* segments, #ID resets to 0
+    log status           show whether file log is on, capacity, next #ID, wrapped y/n
+    log format           print event/heartbeat line format + modeCode legend
+    threshold CH VALUE   set CHx (1~8) threshold, memory only
+    help                 show this help
+>> algo 0
+>>> Track algorithm: BANGBANG (0)
+>> save
+>>> Config saved (speed=17)
+>> config
+{"speed":17,"turn_ratio":0.65,"medium_ratio":0.35,"sharp_ratio":-0.4,"xsharp_ratio":-0.6,"algo":0,"pid_kp":40,"pid_ki":0,"pid_kd":5,"slew_rate":600,"file_log":true,"threshold":[1666,1580,1800,2000,1130,1040,1200,1200],"white_ref":[1111,1100,640,1280,560,580,690,600],"black_ref":[2600,2400,2200,2100,2100,2000,2300,2400]}
+>> help
+>>> Available commands:
+    print on/off         USB+BT data stream on/off
+    print usb on/off     USB data stream only
+    print bt  on/off     BT  data stream only
+    print file on/off    log data stream to /track.log.0~3 flash files, ring buffer w/ #ID (for when BT drops)
+    go N                 forward N sec (1~60)
+    back N               backward N sec (1~60)
+    spin left N          spin in place left N sec (1~60)
+    spin right N         spin in place right N sec (1~60)
+    stop                 stop motor immediately (also cancels track)
+    track on/off         start/stop autonomous line tracking (log: RAM-only during run until buffer nearly full, backed up to flash on off)
+    speed N              speed level (1~40, default 12, until changed)
+    turnspeed N          outer wheel ratio on sharp/hairpin turn (0~100%, default 65)
+    mediumratio N        inner wheel speed on medium turn CH3/CH6 (0~100%, default 35)
+    sharpratio N         inner wheel reverse ratio on sharp turn CH2/CH7 (0~100%, default 30)
+    xsharpratio N        inner wheel reverse ratio on hairpin turn CH1/CH8 (0~100%, default 60)
+    algo 0/1             select track algorithm (0=bangbang, 1=pid, default 0)
+    pid kp N             PID proportional gain (float, default 40.0)
+    pid ki N             PID integral gain (float, default 0.0)
+    pid kd N             PID derivative gain (float, default 5.0)
+    slewrate N           max PWM change per second (float, default 800, smaller = smoother/less zigzag)
+    whiteref CH VALUE    set CHx (1~8) white reference (analog weighting for PID), memory only
+    blackref CH VALUE    set CHx (1~8) black reference (analog weighting for PID), memory only
+    save                 save speed+turnspeed+mediumratio+sharpratio+xsharpratio+algo+pid gains+slewrate+file log on/off+thresholds+white/black refs to flash (/config.json)
+    config               print current config as JSON
+    mem                  show free heap + ram log buffer size (auto-sized at boot, see ram_log_auto_init())
+    log dump             print current RAM log buffer over Serial (most recent track on run, no flash involved)
+    log clear            wipe all /track.log.* segments, #ID resets to 0
+    log status           show whether file log is on, capacity, next #ID, wrapped y/n
+    log format           print event/heartbeat line format + modeCode legend
+    threshold CH VALUE   set CHx (1~8) threshold, memory only
+    help                 show this help
+>> config
+{"speed":17,"turn_ratio":0.65,"medium_ratio":0.35,"sharp_ratio":-0.4,"xsharp_ratio":-0.6,"algo":0,"pid_kp":40,"pid_ki":0,"pid_kd":5,"slew_rate":600,"file_log":true,"threshold":[1666,1580,1800,2000,1130,1040,1200,1200],"white_ref":[1111,1100,640,1280,560,580,690,600],"black_ref":[2600,2400,2200,2100,2100,2000,2300,2400]}
+>> log dump
+>>> log line format: E<dt> <patHex> <modeCode> <L> <R>[ <err>]  (H=heartbeat instead of E)
+>>>   E行dt=ms since previous mode switch (not reset by heartbeats in between)
+>>>   H行dt=ms since previous logged line (heartbeat cadence)
+>>>   patHex=2-digit hex bitmask (bit7=CH8..bit0=CH1, 1=white); L/R=actual PWM sent; err=PID error (PID mode only)
+>>> modeCode: 0=STRAIGHT 1=LEFT(mild) 2=RIGHT(mild) 3=MEDIUM_L 4=MEDIUM_R 5=SHARP_L 6=SHARP_R
+>>>           7=HAIRPIN_L 8=HAIRPIN_R 9=CROSS A=LOST_L B=LOST_R C=LOST_STOP P=PID
+>>> markers: >>> TRACK_ON t=<ms> / >>> PARAMS ... / >>> TRACK_OFF t=<ms> elapsed=<ms>ms duration=<ms>ms lines=<n>
+>>>   elapsed=track on~off挂钟时长, duration=事件/心跳数据实际覆盖的时长(缓冲区提前写满时会比elapsed短)
+>>> --- RAM log dump start (457 lines, most recent track on so far) ---
+>>> TRACK_ON t=61785
+>>> PARAMS speed=17 algo=BANGBANG turn_ratio=0.65 medium_ratio=0.35 sharp_ratio=-0.40 xsharp_ratio=-0.60 slew_rate=600.0 pid_kp=40.00 pid_ki=0.00 pid_kd=5.00 thresh=[1666,1580,1800,2000,1130,1040,1200,1200] white=[1111,1100,640,1280,560,580,690,600] black=[2600,2400,2200,2100,2100,2000,2300,2400]
+E0 08 2 0 0
+E398 00 B 108 74
+E2 08 2 108 75
+E4 00 B 108 74
+E2 08 2 108 75
+E8 00 B 108 74
+E2 08 2 108 75
+E58 00 B 108 74
+E232 20 3 107 -42
+E2 00 A 106 -41
+E2 20 3 104 -39
+E22 60 5 91 -26
+E78 C0 7 44 21
+E144 00 A -42 71
+E269 80 7 -44 107
+E310 40 5 -63 70
+E246 20 3 -42 71
+E18 00 A -33 82
+E2 20 3 -32 83
+E2 00 A -33 84
+E2 20 3 -32 86
+E8 00 A -30 90
+E2 20 3 -29 92
+E6 00 A -27 95
+E2 20 3 -26 96
+E4 00 A -26 99
+E14 20 3 -32 107
+E2 00 A -33 108
+E170 08 2 -42 107
+E100 0C 4 18 74
+E164 06 6 107 36
+E60 03 8 71 0
+E312 00 B 71 -63
+E34 02 6 89 -43
+E28 00 B 75 -43
+E2 02 6 74 -43
+E64 00 B 71 -43
+E2 06 6 70 -43
+E4 04 4 71 -42
+E393 08 2 108 38
+E122 00 B 108 74
+E118 40 5 107 5
+E62 C0 7 70 43
+E110 00 A 4 71
+E498 80 7 -64 78
+E84 88 9 -63 71
+E2 80 7 -64 70
+E10 88 9 -63 71
+E72 C0 7 -22 107
+E40 40 5 -44 83
+E158 00 A -43 71
+E4 20 3 -42 74
+E2 00 A -43 75
+E6 20 3 -42 78
+E2 00 A -43 80
+E4 20 3 -42 82
+E2 00 A -43 83
+E6 20 3 -42 87
+E12 00 A -37 94
+E8 08 2 -39 96
+E160 0C 4 57 74
+E6 08 2 60 73
+E2 0C 4 61 71
+E242 0E 6 107 36
+E12 0C 4 102 31
+E6 0E 6 103 32
+E12 0C 4 98 27
+E2 0E 6 97 26
+E4 0C 4 97 26
+E4 0D 8 97 26
+E245 0C 4 71 -63
+E3 08 2 73 -61
+E49 0A 6 100 -34
+E2 08 2 101 -33
+E56 88 9 108 1
+E10 08 2 108 7
+E8 0C 4 108 12
+E292 08 2 108 38
+E112 00 B 108 74
+E94 20 3 107 20
+E8 60 5 102 25
+E56 C0 7 68 58
+E112 00 A 1 71
+H500 00 A -43 108
+E544 80 7 -44 107
+E214 40 5 -63 70
+E164 20 3 -42 71
+E70 00 A -2 108
+E48 08 2 -29 107
+E2 00 B -27 106
+E191 0E 6 70 -9
+E22 07 8 70 -22
+E68 00 B 71 -61
+E392 01 8 107 -44
+E160 00 B 71 -63
+E124 04 4 108 -42
+E233 08 2 108 38
+E6 0C 4 108 39
+E2 08 2 108 41
+E88 00 B 108 74
+E44 20 3 107 50
+E16 60 5 97 59
+E44 C0 7 71 70
+E98 00 A 12 71
+H500 00 A -43 108
+E627 80 7 -44 107
+E204 40 5 -63 70
+E160 20 3 -42 71
+E6 00 A -41 75
+E6 20 3 -42 78
+E6 00 A -41 82
+E2 20 3 -39 83
+E4 00 A -39 86
+E103 08 2 -41 106
+E73 0C 4 3 74
+E108 0E 6 67 36
+E30 07 8 70 18
+E164 00 B 71 -63
+E123 01 8 107 -44
+E308 02 6 70 -63
+E178 04 4 71 -42
+E360 4C 9 108 38
+E12 0C 4 108 43
+E2 4C 9 108 44
+E2 0C 4 108 43
+E8 08 2 108 41
+E14 0C 4 108 47
+E2 08 2 108 48
+E10 0C 4 108 51
+E71 08 2 108 75
+E8 04 4 108 74
+E6 08 2 108 73
+E8 0C 4 108 74
+E36 08 2 108 55
+E10 20 3 107 61
+E16 24 9 100 70
+E8 20 3 102 75
+E2 28 9 103 76
+E24 60 5 107 88
+E2 68 9 108 89
+E2 60 5 107 88
+E10 44 9 103 85
+E22 40 5 107 95
+E8 48 9 104 93
+E4 C0 7 104 93
+E48 C8 9 78 71
+E2 C0 7 77 70
+E4 C8 9 77 71
+E4 C0 7 77 71
+E2 C8 9 78 72
+E6 C0 7 79 74
+E4 88 9 79 74
+E12 80 7 84 78
+E14 88 9 78 72
+E20 80 7 88 82
+E8 00 A 83 80
+H500 00 A -43 108
+E745 80 7 -64 70
+E238 40 5 -63 70
+E174 20 3 -42 71
+E30 28 9 -24 89
+E4 08 2 -21 89
+E80 0C 4 27 74
+E100 0E 6 84 36
+E34 0F 8 70 15
+E451 06 6 70 -63
+E112 04 4 71 -42
+E390 08 2 108 38
+E152 00 B 108 74
+E179 40 5 82 18
+E40 C0 7 58 42
+E118 00 A -13 71
+E444 80 7 -44 107
+E220 40 5 -63 70
+E189 20 3 -11 102
+E37 00 A 9 108
+E74 08 2 -33 107
+E78 0C 4 13 74
+E110 0E 6 77 36
+E38 07 8 70 13
+E202 00 B 71 -63
+E11 01 8 74 -60
+E1 00 B 75 -59
+E6 01 8 76 -58
+E260 02 6 70 -63
+E187 04 4 104 -9
+E189 06 6 107 36
+E6 04 4 106 35
+E4 06 6 106 35
+E2 04 4 107 36
+E6 06 6 107 36
+E4 04 4 107 36
+E2 06 6 106 35
+E28 04 4 91 20
+E2 06 6 90 19
+E22 04 4 79 8
+E2 06 6 78 7
+E12 04 4 73 2
+E26 06 6 86 15
+E16 04 4 79 8
+E14 06 6 85 14
+E2 04 4 86 15
+E398 08 2 108 38
+E26 0C 4 108 51
+E32 08 2 108 38
+E2 0C 4 108 37
+E2 08 2 108 38
+E16 0C 4 108 45
+E2 08 2 108 47
+E10 48 9 108 53
+E2 08 2 108 54
+E92 28 9 108 76
+E212 80 7 107 107
+E24 00 A 92 95
+H500 00 A -43 108
+E852 80 7 -64 70
+E312 E8 9 -63 71
+E166 0F 8 37 107
+E34 0C 4 57 86
+E18 08 2 68 76
+E16 00 B 78 74
+H501 00 B 108 -43
+H500 00 B 108 -43
+E1009 01 8 107 -44
+E120 00 B 71 -63
+E20 02 6 81 -51
+E88 04 4 71 -42
+E226 08 2 108 75
+E26 28 9 108 76
+E20 60 5 107 86
+E28 E0 7 90 70
+E98 00 A 31 71
+H500 00 A -43 108
+H501 00 A -43 108
+E1501 00 C 0 0
+H501 00 C 0 0
+H500 00 C 0 0
+H501 00 C 0 0
+H500 00 C 0 0
+E2352 08 2 0 0
+E458 00 B 108 74
+E180 20 3 107 -32
+E4 00 A 104 -29
+E2 20 3 103 -28
+E22 60 5 90 -15
+E79 C0 7 43 32
+E163 00 A -53 71
+E195 80 7 -44 107
+E316 40 5 -63 70
+E242 00 A -43 71
+E2 20 3 -42 72
+E2 00 A -43 74
+E2 20 3 -42 75
+E2 00 A -43 76
+E12 20 3 -42 83
+E22 00 A -31 96
+E8 20 3 -33 101
+E8 00 A -31 106
+E162 08 2 -42 107
+E120 0C 4 30 40
+E173 06 6 107 36
+E84 03 8 70 -15
+E148 00 B 71 -63
+E44 02 6 95 -43
+E78 00 B 71 -43
+E19 04 4 83 -41
+E367 08 2 108 38
+E132 00 B 108 74
+E108 40 5 107 11
+E62 C0 7 70 49
+E112 00 A 2 71
+E474 80 7 -44 107
+E100 88 9 -63 71
+E6 80 7 -62 72
+E8 88 9 -63 71
+E86 C0 7 -64 70
+E10 40 5 -63 70
+E158 20 3 -42 71
+E42 28 9 -17 96
+E8 08 2 -12 99
+E2 28 9 -11 100
+E2 08 2 -9 99
+E20 00 B 3 87
+E2 08 2 4 86
+E142 0C 4 89 74
+E2 08 2 90 75
+E16 0C 4 100 74
+E240 0E 6 107 36
+E2 0C 4 108 37
+E2 0E 6 107 36
+E110 0C 4 71 -28
+E2 0E 6 70 -29
+E16 08 2 71 -36
+E2 0A 6 70 -37
+E14 0C 4 71 -42
+E2 08 2 72 -41
+E2 0C 4 74 -39
+E4 08 2 76 -37
+E2 0C 4 77 -36
+E6 08 2 81 -32
+E2 0E 6 80 -33
+E2 0C 4 81 -32
+E12 0E 6 86 -27
+E6 0C 4 84 -29
+E8 08 2 89 -24
+E6 0A 6 90 -23
+E8 0C 4 88 -25
+E2 08 2 89 -24
+E78 00 B 108 21
+E75 04 4 108 37
+E298 08 2 108 38
+E6 0C 4 108 39
+E2 08 2 108 41
+E130 00 B 108 74
+E100 20 3 107 16
+E18 60 5 96 27
+E66 C0 7 56 67
+E122 00 A -17 71
+E416 80 7 -44 107
+E216 40 5 -63 70
+E172 20 3 -42 71
+E60 00 A -8 107
+E10 20 3 -12 108
+E2 00 A -13 108
+E74 08 2 -42 107
+E84 0C 4 9 74
+E132 0E 6 85 36
+E79 01 8 70 -12
+H500 01 8 70 -64
+E538 00 B 71 -63
+E4 01 8 71 -63
+E2 00 B 72 -62
+E14 02 6 78 -53
+E212 04 4 71 -42
+E370 08 2 108 38
+E116 00 B 108 74
+E80 20 3 107 28
+E18 60 5 96 39
+E58 C0 7 61 70
+E122 00 A -12 71
+E474 80 7 -64 73
+E181 40 5 -63 70
+E172 20 3 -42 71
+E56 00 A -11 105
+E2 20 3 -9 106
+E2 00 A -11 107
+E94 08 2 -42 107
+E84 0C 4 9 74
+E122 0E 6 79 36
+E56 07 8 70 2
+E476 0A 6 70 -63
+E244 0C 4 71 -42
+E2 0E 6 70 -43
+E4 0C 4 71 -42
+E202 4C 9 108 38
+E2 0C 4 108 37
+E14 8C 9 108 38
+E2 0C 4 108 37
+E60 8C 9 108 38
+E2 0C 4 108 37
+E38 8C 9 108 38
+E6 0C 4 108 39
+E48 08 2 108 38
+E266 60 5 -7 70
+E58 C0 7 -42 70
+E394 40 5 -63 70
+E230 20 3 -42 71
+E118 00 A 27 108
+E151 08 2 -42 107
+E118 0C 4 29 74
+E210 06 6 107 36
+E2 04 4 108 37
+E4 06 6 107 36
+E300 04 4 71 -42
+E2 06 6 70 -43
+E6 04 4 71 -42
+E4 06 6 71 -42
+E2 04 4 72 -41
+E332 08 2 108 38
+E124 00 B 108 74
+E84 20 3 107 26
+E16 60 5 97 35
+E64 C0 7 59 70
+E126 00 A -17 71
+E406 80 7 -44 107
+E240 40 5 -63 70
+E196 20 3 -42 71
+E44 00 A -18 98
+E132 08 2 -42 107
+E90 0C 4 12 74
+E140 0E 6 94 36
+E60 07 8 70 0
+E329 02 6 70 -63
+E160 04 4 71 -42
+E372 08 2 108 38
+E2 0C 4 108 37
+E2 08 2 108 38
+E138 00 B 108 74
+E76 20 3 107 31
+E44 60 5 80 57
+E82 C0 7 31 70
+E152 00 A -58 71
+E203 08 2 -41 106
+E27 88 9 -25 92
+E316 40 5 107 107
+E222 20 3 -24 71
+E81 00 A -34 108
+E114 08 2 -42 107
+E96 0C 4 16 74
+E140 06 6 97 36
+E66 03 8 70 -4
+E348 00 B 71 -63
+E46 02 6 96 -43
+E197 04 4 103 -10
+E279 08 2 108 38
+E240 00 B 108 74
+E92 20 3 107 21
+E32 60 5 88 40
+E44 48 9 64 67
+E2 40 5 62 68
+E32 C0 7 43 70
+E182 00 A -63 71
+E182 80 7 -44 107
+E302 40 5 -63 70
+H500 40 5 -43 70
+E719 00 A -43 71
+H500 00 A -43 108
+H500 00 A -43 108
+H500 00 A -43 108
+E1502 00 C 0 0
+H500 00 C 0 0
+H500 00 C 0 0
+H501 00 C 0 0
+H500 00 C 0 0
+H500 00 C 0 0
+H500 00 C 0 0
+H514 00 C 0 0
+H500 00 C 0 0
+H500 00 C 0 0
+H500 00 C 0 0
+H501 00 C 0 0
+H500 00 C 0 0
+E6090 80 7 0 0
+E78 C8 9 -44 47
+H501 EC 9 108 108
+E593 80 7 107 107
+E6 88 9 106 106
+E2 80 7 104 104
+E6 00 A 101 103
+H500 00 A -43 108
+H501 00 A -43 108
+E1501 00 C 0 0
+H500 00 C 0 0
+H500 00 C 0 0
+>>> TRACK_OFF t=116980 elapsed=55195ms duration=55033ms lines=456
+>>> --- RAM log dump end ---
+>> 

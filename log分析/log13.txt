@@ -1,0 +1,75 @@
+log dump
+>>> Unknown command, type help for command list
+>> log dump
+>>> log line format: E<dt> <patHex> <modeCode> <L> <R>[ <err>]  (H=heartbeat instead of E)
+>>>   E行dt=ms since previous mode switch (not reset by heartbeats in between)
+>>>   H行dt=ms since previous logged line (heartbeat cadence)
+>>>   patHex=2-digit hex bitmask (bit7=CH8..bit0=CH1, 1=white); L/R=actual PWM sent; err=PID error (PID mode only)
+>>> modeCode: 0=STRAIGHT 1=LEFT(mild) 2=RIGHT(mild) 3=MEDIUM_L 4=MEDIUM_R 5=SHARP_L 6=SHARP_R
+>>>           7=HAIRPIN_L 8=HAIRPIN_R 9=CROSS A=LOST_L B=LOST_R C=LOST_STOP P=PID
+>>> markers: >>> TRACK_ON t=<ms> / >>> PARAMS ... / >>> TRACK_OFF t=<ms> elapsed=<ms>ms duration=<ms>ms lines=<n>
+>>>   elapsed=track on~off挂钟时长, duration=事件/心跳数据实际覆盖的时长(缓冲区提前写满时会比elapsed短)
+>>> --- RAM log dump start (61 lines, most recent track on so far) ---
+>>> TRACK_ON t=994
+>>> PARAMS speed=17 algo=BANGBANG turn_ratio=0.65 medium_ratio=0.35 sharp_ratio=-0.40 xsharp_ratio=-0.60 slew_rate=600.0 pid_kp=40.00 pid_ki=0.00 pid_kd=5.00 thresh=[1200,1100,1000,1100,1000,1100,1300,1300] white=[690,770,610,580,900,860,970,980] black=[2400,2300,2000,2030,2200,2100,2300,2400]
+E0 10 1 0 0
+E469 18 9 76 108
+E90 08 2 108 107
+E236 18 9 108 76
+E80 10 1 107 108
+E2 18 9 108 108
+E2 10 1 107 108
+E402 50 5 74 107
+E8 10 1 71 104
+E8 18 9 76 108
+E4 10 1 76 108
+E456 18 9 76 108
+E70 08 2 108 107
+H501 08 2 108 75
+E535 18 9 108 76
+E62 10 1 107 108
+E154 00 A 74 108
+E32 20 3 55 108
+E197 60 5 35 106
+E19 20 3 26 97
+E2 60 5 25 96
+E4 20 3 25 96
+E34 60 5 36 107
+E4 E0 7 33 104
+E4 60 5 31 102
+E28 20 3 17 88
+E2 60 5 15 86
+E20 20 3 6 77
+E2 60 5 5 76
+E4 20 3 5 76
+E2 60 5 3 74
+E2 20 3 5 76
+E178 00 A 36 108
+E44 10 1 12 108
+E99 18 9 71 108
+E38 08 2 94 107
+E96 0C 4 108 74
+E216 06 6 107 36
+E228 04 4 71 -42
+E200 08 2 108 38
+E76 18 9 108 76
+E38 10 1 107 99
+E46 30 3 79 108
+E56 60 5 46 82
+E67 C0 7 5 70
+H500 C0 7 -64 70
+E504 40 5 -63 70
+E152 00 A -43 71
+H501 00 A -43 108
+H500 00 A -43 108
+E1502 00 C 0 0
+H500 00 C 0 0
+H500 00 C 0 0
+H500 00 C 0 0
+H500 00 C 0 0
+H500 00 C 0 0
+H500 00 C 0 0
+H500 00 C 0 0
+>>> TRACK_OFF t=11057 elapsed=10063ms duration=9977ms lines=60
+>>> --- RAM log dump end ---
+>> 

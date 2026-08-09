@@ -126,6 +126,50 @@ static void handle_command(const char* cmd) {
       reply(buf);
     }
 
+  // --- 方案A：弯道降速 mediumspeed/sharpspeed/hairpinspeed N (各档前进速度系数，百分比0~100，仅bang-bang) ---
+  } else if (strncmp(cmd, "mediumspeed ", 12) == 0) {
+    int pct = atoi(cmd + 12);
+    if (pct < 0 || pct > 100) {
+      reply(">>> Medium speed range 0~100\r\n");
+    } else {
+      track_set_medium_speed(pct / 100.0f);
+      char buf[88];
+      snprintf(buf, sizeof(buf), ">>> Medium speed set to %d%% (bang-bang forward speed on medium turn CH3/CH6)\r\n", pct);
+      reply(buf);
+    }
+  } else if (strncmp(cmd, "sharpspeed ", 11) == 0) {
+    int pct = atoi(cmd + 11);
+    if (pct < 0 || pct > 100) {
+      reply(">>> Sharp speed range 0~100\r\n");
+    } else {
+      track_set_sharp_speed(pct / 100.0f);
+      char buf[88];
+      snprintf(buf, sizeof(buf), ">>> Sharp speed set to %d%% (bang-bang forward speed on sharp turn CH2/CH7)\r\n", pct);
+      reply(buf);
+    }
+  } else if (strncmp(cmd, "hairpinspeed ", 13) == 0) {
+    int pct = atoi(cmd + 13);
+    if (pct < 0 || pct > 100) {
+      reply(">>> Hairpin speed range 0~100\r\n");
+    } else {
+      track_set_hairpin_speed(pct / 100.0f);
+      char buf[88];
+      snprintf(buf, sizeof(buf), ">>> Hairpin speed set to %d%% (bang-bang forward speed on hairpin turn CH1/CH8)\r\n", pct);
+      reply(buf);
+    }
+
+  // --- minpwm N (方案A外轮最小前进PWM，防静摩擦堵转停车，0~255) ---
+  } else if (strncmp(cmd, "minpwm ", 7) == 0) {
+    int v = atoi(cmd + 7);
+    if (v < 0 || v > 255) {
+      reply(">>> Min move PWM range 0~255\r\n");
+    } else {
+      track_set_min_move_pwm(v);
+      char buf[88];
+      snprintf(buf, sizeof(buf), ">>> Min move PWM set to %d (bang-bang outer wheel floor, anti-stall)\r\n", v);
+      reply(buf);
+    }
+
   // --- algo 0/1 (0=bangbang, 1=pid; 数字命令，比拼单词更短更好敲) ---
   } else if (strcmp(cmd, "algo 0") == 0) {
     track_set_algo(TRACK_ALGO_BANGBANG);
@@ -334,6 +378,10 @@ static void handle_command(const char* cmd) {
     reply("    mediumratio N        inner wheel speed on medium turn CH3/CH6 (0~100%, default 35)\r\n");
     reply("    sharpratio N         inner wheel reverse ratio on sharp turn CH2/CH7 (0~100%, default 30)\r\n");
     reply("    xsharpratio N        inner wheel reverse ratio on hairpin turn CH1/CH8 (0~100%, default 60)\r\n");
+    reply("    mediumspeed N        [bangbang] forward speed on medium turn CH3/CH6 (0~100%, default 85)\r\n");
+    reply("    sharpspeed N         [bangbang] forward speed on sharp turn CH2/CH7 (0~100%, default 65)\r\n");
+    reply("    hairpinspeed N       [bangbang] forward speed on hairpin turn CH1/CH8 (0~100%, default 50)\r\n");
+    reply("    minpwm N             [bangbang] outer wheel min forward PWM, anti-stall floor (0~255, default 70)\r\n");
     reply("    algo 0/1             select track algorithm (0=bangbang, 1=pid, default 0)\r\n");
     reply("    pid kp N             PID proportional gain (float, default 40.0)\r\n");
     reply("    pid ki N             PID integral gain (float, default 0.0)\r\n");
@@ -341,7 +389,7 @@ static void handle_command(const char* cmd) {
     reply("    slewrate N           max PWM change per second (float, default 800, smaller = smoother/less zigzag)\r\n");
     reply("    whiteref CH VALUE    set CHx (1~8) white reference (analog weighting for PID), memory only\r\n");
     reply("    blackref CH VALUE    set CHx (1~8) black reference (analog weighting for PID), memory only\r\n");
-    reply("    save                 save speed+turnspeed+mediumratio+sharpratio+xsharpratio+algo+pid gains+slewrate+file log on/off+thresholds+white/black refs to flash (/config.json)\r\n");
+    reply("    save                 save speed+turnspeed+mediumratio+sharpratio+xsharpratio+medium/sharp/hairpin speed+minpwm+algo+pid gains+slewrate+file log on/off+thresholds+white/black refs to flash (/config.json)\r\n");
     reply("    config               print current config as JSON\r\n");
     reply("    mem                  show free heap + ram log buffer size (auto-sized at boot, see ram_log_auto_init())\r\n");
     reply("    log dump             print current RAM log buffer over Serial (most recent track on run, no flash involved)\r\n");

@@ -33,6 +33,10 @@ void config_begin() {
   track_set_medium_ratio(doc["medium_ratio"] | track_get_medium_ratio());
   track_set_sharp_ratio(doc["sharp_ratio"] | track_get_sharp_ratio());
   track_set_xsharp_ratio(doc["xsharp_ratio"] | track_get_xsharp_ratio());
+  track_set_medium_speed(doc["medium_speed"] | track_get_medium_speed());
+  track_set_sharp_speed(doc["sharp_speed"] | track_get_sharp_speed());
+  track_set_hairpin_speed(doc["hairpin_speed"] | track_get_hairpin_speed());
+  track_set_min_move_pwm(doc["min_move_pwm"] | track_get_min_move_pwm());
   track_set_algo(doc["algo"] | track_get_algo());
   track_set_pid_kp(doc["pid_kp"] | track_get_pid_kp());
   track_set_pid_ki(doc["pid_ki"] | track_get_pid_ki());
@@ -87,6 +91,10 @@ void config_save() {
   doc["medium_ratio"] = track_get_medium_ratio();
   doc["sharp_ratio"] = track_get_sharp_ratio();
   doc["xsharp_ratio"] = track_get_xsharp_ratio();
+  doc["medium_speed"] = track_get_medium_speed();
+  doc["sharp_speed"] = track_get_sharp_speed();
+  doc["hairpin_speed"] = track_get_hairpin_speed();
+  doc["min_move_pwm"] = track_get_min_move_pwm();
   doc["algo"] = track_get_algo();
   doc["pid_kp"] = track_get_pid_kp();
   doc["pid_ki"] = track_get_pid_ki();
@@ -121,6 +129,10 @@ void config_print() {
   doc["medium_ratio"] = track_get_medium_ratio();
   doc["sharp_ratio"] = track_get_sharp_ratio();
   doc["xsharp_ratio"] = track_get_xsharp_ratio();
+  doc["medium_speed"] = track_get_medium_speed();
+  doc["sharp_speed"] = track_get_sharp_speed();
+  doc["hairpin_speed"] = track_get_hairpin_speed();
+  doc["min_move_pwm"] = track_get_min_move_pwm();
   doc["algo"] = track_get_algo();
   doc["pid_kp"] = track_get_pid_kp();
   doc["pid_ki"] = track_get_pid_ki();
@@ -172,9 +184,11 @@ void config_build_params_line(char* buf, size_t buf_size) {
 
   snprintf(buf, buf_size,
            ">>> PARAMS speed=%d algo=%s turn_ratio=%.2f medium_ratio=%.2f sharp_ratio=%.2f xsharp_ratio=%.2f "
+           "medspeed=%.2f shpspeed=%.2f hpspeed=%.2f minpwm=%d "
            "slew_rate=%.1f pid_kp=%.2f pid_ki=%.2f pid_kd=%.2f thresh=%s white=%s black=%s\r\n",
            _speed, track_get_algo() == TRACK_ALGO_PID ? "PID" : "BANGBANG",
            track_get_turn_ratio(), track_get_medium_ratio(), track_get_sharp_ratio(), track_get_xsharp_ratio(),
+           track_get_medium_speed(), track_get_sharp_speed(), track_get_hairpin_speed(), track_get_min_move_pwm(),
            track_get_slew_rate(), track_get_pid_kp(), track_get_pid_ki(), track_get_pid_kd(),
            thresh, white, black);
 }

@@ -9,13 +9,11 @@
 #include <stdint.h>
 #include <math.h>
 
-// 8路传感器扩展后的4级差速bang-bang（见"8路传感器方案.md"）：
-// CH4/CH5缓转(mild) < CH3/CH6中转(medium) < CH2/CH7急转(sharp) < CH1/CH8发卡弯(hairpin)
-// 由外到内依次判定，命中最外层就不再看内层
+// 8路传感器差速bang-bang（见"8路传感器方案.md"）：中心两路直行 + 对称三档转向
+// CH4/CH5压线(任一或两路)→直行(不改变轮速)；CH3/CH6一档(medium) < CH2/CH7二档(sharp) < CH1/CH8三档(hairpin)
+// 由外到内依次判定，命中最外层就不再看内层；只有中心两路压线(或全不命中)才直行
 
-// CH4/CH5触发的缓转，内侧轮减速比例（0.0~1.0），越小转向越急
-#define TURN_RATIO_MILD  0.7f
-// CH3/CH6触发的中转（新增，介于mild和sharp之间），内侧轮减速比例（不反转），纯起调猜测未实车验证
+// CH3/CH6触发的一档中转，内侧轮减速比例（不反转），纯起调猜测未实车验证
 // 默认值，运行时可通过mediumratio命令调整（供config_module持久化用）
 #define TURN_RATIO_MEDIUM_DEFAULT 0.35f
 // CH2/CH7触发的急转，内侧轮反转比例（负值=反转），用于R70这类极小半径弯，需实车试调
@@ -28,6 +26,19 @@
 // 目的：急弯只反转内轮、外轮仍全速时车身带着直道动能冲进弯道容易冲出赛道，
 // 外轮同步降速能减少入弯动能，配合内轮反转更容易在R70内掉头
 #define TURN_OUTER_RATIO_DEFAULT 0.65f
+
+// 方案A（弯道降速，见"log分析/log17分析.md"第七节）：bang-bang按档位降低前进速度——
+// 弯越急，整档base降得越多，让车进弯前先收速、给机械留出转向时间，避免以直线速度冲进弯冲到最外侧丢线。
+// 系数=占满速base的比例(0~1)，越小越慢。内轮/外轮都基于"降速后的base"算，整档一起慢。
+// 只作用于bang-bang，PID分支与丢线找线(LOST)不受影响。三个系数运行时可调(mediumspeed/sharpspeed/hairpinspeed)。
+#define TURN_SPEED_MEDIUM_DEFAULT  0.85f  // MEDIUM档(CH3/CH6)前进速度系数
+#define TURN_SPEED_SHARP_DEFAULT   0.65f  // SHARP档(CH2/CH7)
+#define TURN_SPEED_HAIRPIN_DEFAULT 0.50f  // HAIRPIN档(CH1/CH8)
+
+// 电机最小前进PWM(静摩擦死区地板)：实测speed<16(即PWM<~102)起步转不动；但运动中的外轮实测70能持续转，
+// 故默认取70作"运动中不失速"地板。方案A把外轮降速后若低于此值会被抬回，避免弯道里外轮堵转停车。
+// 只保护"必须持续前进"的外轮；反转的内轮(转向动作)不受此地板约束。运行时可调(minpwm命令)。
+#define MOTOR_MIN_MOVE_PWM_DEFAULT 70
 // 丢线后延续最后转向方向找线的超时(ms)，超时未找回则停车
 #define LOST_TIMEOUT_MS 1500
 
@@ -53,7 +64,7 @@
 #define PID_DERIV_FILTER_ALPHA 0.3f
 
 // PWM限速：下发给电机的pwm_l/pwm_r每秒最多变化这么多单位（0~255量程），运行时可通过
-// slewrate命令调整。目的：bang-bang各档（STRAIGHT/mild/sharp）之间PWM差距很大且是硬跳变
+// slewrate命令调整。目的：bang-bang各档（STRAIGHT/一档/二档/三档）之间PWM差距很大且是硬跳变
 // （比如从base=102直接跳到sharp_turn=-40反转），车身在检测边界附近来回穿越时会跟着硬来回
 // 打，表现为"左右摇摆剧烈"；PID模式下也一样受益（模式切换/误差跳档时同样是硬跳变）。
 // 限速后目标PWM需要一点时间才能到位，把这种硬摇摆摊开、变平滑。数值越大越接近不限速。
@@ -71,6 +82,10 @@ static float _turn_outer_ratio = TURN_OUTER_RATIO_DEFAULT;
 static float _sharp_ratio = TURN_RATIO_SHARP_DEFAULT;
 static float _medium_ratio = TURN_RATIO_MEDIUM_DEFAULT;
 static float _xsharp_ratio = TURN_RATIO_XSHARP_DEFAULT;
+static float _medium_speed  = TURN_SPEED_MEDIUM_DEFAULT;   // 方案A：各档前进速度系数
+static float _sharp_speed    = TURN_SPEED_SHARP_DEFAULT;
+static float _hairpin_speed  = TURN_SPEED_HAIRPIN_DEFAULT;
+static int   _min_move_pwm   = MOTOR_MIN_MOVE_PWM_DEFAULT;  // 外轮最小前进PWM(防静摩擦堵转失速)
 
 static int _algo = TRACK_ALGO_BANGBANG;
 static float _pid_kp = PID_KP_DEFAULT;
@@ -130,6 +145,13 @@ static int clamp_pwm(int v) {
   return v;
 }
 
+// 正向驱动轮的最小PWM保护：正值且低于地板则抬到地板(防静摩擦堵转停车)；0(停)和负值(反转)原样返回。
+// 只给"必须持续前进"的外轮用；内轮的减速/反转是转向动作，不加地板。
+static int floor_fwd(int v) {
+  if (v > 0 && v < _min_move_pwm) return _min_move_pwm;
+  return v;
+}
+
 float track_get_turn_ratio() {
   return _turn_outer_ratio;
 }
@@ -169,6 +191,16 @@ void track_set_xsharp_ratio(float ratio) {
   if (ratio > 0.0f) ratio = 0.0f;
   _xsharp_ratio = ratio;
 }
+
+// 方案A：各档前进速度系数(0~1)，clamp到合法区间
+float track_get_medium_speed() { return _medium_speed; }
+void  track_set_medium_speed(float r) { if (r < 0.0f) r = 0.0f; if (r > 1.0f) r = 1.0f; _medium_speed = r; }
+float track_get_sharp_speed() { return _sharp_speed; }
+void  track_set_sharp_speed(float r) { if (r < 0.0f) r = 0.0f; if (r > 1.0f) r = 1.0f; _sharp_speed = r; }
+float track_get_hairpin_speed() { return _hairpin_speed; }
+void  track_set_hairpin_speed(float r) { if (r < 0.0f) r = 0.0f; if (r > 1.0f) r = 1.0f; _hairpin_speed = r; }
+int   track_get_min_move_pwm() { return _min_move_pwm; }
+void  track_set_min_move_pwm(int pwm) { if (pwm < 0) pwm = 0; if (pwm > 255) pwm = 255; _min_move_pwm = pwm; }
 
 int track_get_algo() {
   return _algo;
@@ -276,10 +308,9 @@ void track_update() {
   // 物理左→右：CH8 CH7 CH6 CH5 | CH4 CH3 CH2 CH1
   bool xsharp_l = is_white[7]; // CH8，物理左侧最外，发卡弯
   bool sharp_l  = is_white[6]; // CH7，物理左侧，急转
-  bool medium_l = is_white[5]; // CH6，物理左侧，中转
-  bool mild_l   = is_white[4]; // CH5，物理左侧，缓转
-  bool mild_r   = is_white[3]; // CH4，物理右侧，缓转
-  bool medium_r = is_white[2]; // CH3，物理右侧，中转
+  bool medium_l = is_white[5]; // CH6，物理左侧，一档中转
+  // CH5(is_white[4])/CH4(is_white[3])为中心两路，压线时直行，不单独判档
+  bool medium_r = is_white[2]; // CH3，物理右侧，一档中转
   bool sharp_r  = is_white[1]; // CH2，物理右侧，急转
   bool xsharp_r = is_white[0]; // CH1，物理右侧最外，发卡弯
 
@@ -292,10 +323,8 @@ void track_update() {
   bool cross = left_any && right_any;
 
   int base = motor_level_to_pwm(config_get_speed());
-  int mild_turn   = (int)(base * TURN_RATIO_MILD);
-  int medium_turn = (int)(base * _medium_ratio);
+  // sharp_turn仅供丢线找线(LOST)分支延续方向找线用，基于满速base，不受方案A的弯道降速影响
   int sharp_turn  = (int)(base * _sharp_ratio);
-  int xsharp_turn = (int)(base * _xsharp_ratio);
 
   int pwm_l = base;
   int pwm_r = base;
@@ -363,44 +392,46 @@ void track_update() {
   } else {
     _lost_since = 0;
     // 由外到内依次判定，命中最外层就不再看内层（见"8路传感器方案.md"第4节）
+    // 方案A（弯道降速，见"log分析/log17分析.md"第七节）：按档位降低前进(外轮)速度——
+    // 弯越急外轮降得越多（base_hp<base_shp<base_med<base），进弯前先收速、给机械留转向时间，
+    // 避免以直线速度冲进弯冲到最外侧丢线。
+    // 两点保护：① 外轮经floor_fwd()保底，绝不低于最小前进PWM，防降速后外轮堵转停车；
+    //          ② sharp/发卡的内轮反转仍用满速base算，保住掉头力度，不被降速削弱(否则发卡转不过来)。
+    int base_med = (int)(base * _medium_speed);   // MEDIUM档(CH3/CH6)外轮前进速度
+    int base_shp = (int)(base * _sharp_speed);    // SHARP档(CH2/CH7)外轮前进速度
+    int base_hp  = (int)(base * _hairpin_speed);  // HAIRPIN档(CH1/CH8)外轮前进速度
     if (xsharp_l) {
-      pwm_l = xsharp_turn;  // CH8压线，发卡弯（内轮反转，比sharp更激进）
-      pwm_r = (int)(base * _turn_outer_ratio);  // 外轮同步降速，减少入弯动能
+      pwm_l = (int)(base * _xsharp_ratio);                     // CH8发卡：内轮反转用满速base，保住掉头力度
+      pwm_r = floor_fwd((int)(base_hp * _turn_outer_ratio));   // 外轮降速+最小PWM地板防堵转
       mode_code = '7';
       _last_dir = -1;
     } else if (sharp_l) {
-      pwm_l = sharp_turn;   // CH7压线，急转（内轮反转）
-      pwm_r = (int)(base * _turn_outer_ratio);  // 外轮同步降速，减少入弯动能
+      pwm_l = (int)(base * _sharp_ratio);                      // CH7急转：内轮反转用满速base
+      pwm_r = floor_fwd((int)(base_shp * _turn_outer_ratio));
       mode_code = '5';
       _last_dir = -1;
     } else if (medium_l) {
-      pwm_l = medium_turn;  // CH6压线，中转（内轮减速，不反转）
+      pwm_l = (int)(base_med * _medium_ratio);                 // CH6一档：内轮减速(不反转)
+      pwm_r = floor_fwd(base_med);                             // 外轮降到MEDIUM速度+地板保护
       mode_code = '3';
       _last_dir = -1;
-    } else if (mild_l) {
-      pwm_l = mild_turn;    // CH5压线，缓转
-      mode_code = '1';
-      _last_dir = -1;
     } else if (xsharp_r) {
-      pwm_r = xsharp_turn;  // CH1压线，发卡弯（内轮反转，比sharp更激进）
-      pwm_l = (int)(base * _turn_outer_ratio);  // 外轮同步降速，减少入弯动能
+      pwm_r = (int)(base * _xsharp_ratio);                     // CH1发卡：内轮反转用满速base
+      pwm_l = floor_fwd((int)(base_hp * _turn_outer_ratio));
       mode_code = '8';
       _last_dir = 1;
     } else if (sharp_r) {
-      pwm_r = sharp_turn;   // CH2压线，急转（内轮反转）
-      pwm_l = (int)(base * _turn_outer_ratio);  // 外轮同步降速，减少入弯动能
+      pwm_r = (int)(base * _sharp_ratio);                      // CH2急转：内轮反转用满速base
+      pwm_l = floor_fwd((int)(base_shp * _turn_outer_ratio));
       mode_code = '6';
       _last_dir = 1;
     } else if (medium_r) {
-      pwm_r = medium_turn;  // CH3压线，中转（内轮减速，不反转）
+      pwm_r = (int)(base_med * _medium_ratio);                 // CH3一档：内轮减速(不反转)
+      pwm_l = floor_fwd(base_med);                             // 外轮降到MEDIUM速度+地板保护
       mode_code = '4';
       _last_dir = 1;
-    } else if (mild_r) {
-      pwm_r = mild_turn;    // CH4压线，缓转
-      mode_code = '2';
-      _last_dir = 1;
     }
-    // 都不命中（全黑或中间对同时压线）：直行，不更新_last_dir
+    // 都不命中（中心两路CH4/CH5压线、全黑、或中间对同时压线）：直行，不更新_last_dir
   }
 
   // PWM限速：把目标值平滑逼近，压住bang-bang/PID在检测边界附近来回穿越时的硬摇摆。

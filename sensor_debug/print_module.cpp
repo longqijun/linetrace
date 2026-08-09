@@ -154,7 +154,7 @@ void print_log_legend() {
   Serial.println(">>>   E行dt=ms since previous mode switch (not reset by heartbeats in between)");
   Serial.println(">>>   H行dt=ms since previous logged line (heartbeat cadence)");
   Serial.println(">>>   patHex=2-digit hex bitmask (bit7=CH8..bit0=CH1, 1=white); L/R=actual PWM sent; err=PID error (PID mode only)");
-  Serial.println(">>> modeCode: 0=STRAIGHT 1=LEFT(mild) 2=RIGHT(mild) 3=MEDIUM_L 4=MEDIUM_R 5=SHARP_L 6=SHARP_R");
+  Serial.println(">>> modeCode: 0=STRAIGHT 1/2=unused(旧mild档已移除) 3=MEDIUM_L 4=MEDIUM_R 5=SHARP_L 6=SHARP_R");
   Serial.println(">>>           7=HAIRPIN_L 8=HAIRPIN_R 9=CROSS A=LOST_L B=LOST_R C=LOST_STOP P=PID");
   Serial.println(">>> markers: >>> TRACK_ON t=<ms> / >>> PARAMS ... / >>> TRACK_OFF t=<ms> elapsed=<ms>ms duration=<ms>ms lines=<n>");
   Serial.println(">>>   elapsed=track on~off挂钟时长, duration=事件/心跳数据实际覆盖的时长(缓冲区提前写满时会比elapsed短)");
