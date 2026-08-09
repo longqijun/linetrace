@@ -3,3 +3,8 @@
 build/
 *.bin
 *.elf
+
+# 日志解析器生成的Excel(可由 parse_logs.py 重生成)
+doc/日志分析/*.xlsx
+__pycache__/
+*.pyc
