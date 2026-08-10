@@ -543,8 +543,15 @@ void track_update() {
       else if (error < 0.0f) _last_dir = -1;
     }
 
-    pwm_l = clamp_pwm(base + _pid_hold_output);
-    pwm_r = clamp_pwm(base - _pid_hold_output);
+    // 外轮封顶在base：修正量只"减慢内轮"(可到反转)，外轮不超过base，绝不加速冲进弯。
+    // 原来对称的 base±output 会把外轮顶到2倍多base、加速冲弯过冲丢线(见"问题/02")。
+    // 只改PID分支，BB(下面else)完全不动。
+    int pl = base + _pid_hold_output;
+    int pr = base - _pid_hold_output;
+    if (pl > base) pl = base;   // 外轮封顶(不加速)
+    if (pr > base) pr = base;
+    pwm_l = clamp_pwm(pl);      // 内轮仍可为负(反转)
+    pwm_r = clamp_pwm(pr);
     mode_code = 'P';
   } else {
     _lost_since = 0;
