@@ -24,3 +24,18 @@ int   sensor_get_white_ref(int index);                 // 获取某路"压线中
 void  sensor_set_white_ref(int index, int value);      // 设置某路白参考值（仅内存，供config_module加载配置用）
 int   sensor_get_black_ref(int index);                 // 获取某路"完全压不到线"参考值（黑色背景，ADC高值）
 void  sensor_set_black_ref(int index, int value);      // 设置某路黑参考值（仅内存，供config_module加载配置用）
+
+// --- 传感器阈值自动标定（扫描式，见"传感器阈值自动标定方案.md"方案B）---
+// 手持小车在跑道上来回横扫黑线，每路都轮流经历黑/白，采集期每路取"最大的K个"平均=blackref、
+// "最小的K个"平均=whiteref，threshold=white+(black-white)*ratio。校验不过的路不写、保留旧值。
+#define SENSOR_CALIB_MAX_K 100    // 极值群容量上限（编译期，决定采集时临时堆占用；运行期K<=此值）
+
+int   sensor_get_calib_k();                 // 极值群大小K（默认100）
+void  sensor_set_calib_k(int k);            // 设置K，夹到1~SENSOR_CALIB_MAX_K（仅内存）
+float sensor_get_calib_ratio();             // threshold插值系数（默认0.5）
+void  sensor_set_calib_ratio(float r);      // 设置ratio，夹到0~1（仅内存）
+int   sensor_get_calib_sweep_sec();         // 默认扫描秒数（默认5）
+void  sensor_set_calib_sweep_sec(int s);    // 设置默认秒数，夹到1~60（仅内存）
+// 扫描式采集seconds秒(100Hz)，算出并写入每路white/black/threshold(仅内存)，通过out回调打印
+// 进度与结果表。调用方须在调用前停车(track_set(false)+motor_stop())。持久化用config_save_sensor。
+void  sensor_calib_sweep(int seconds, void (*out)(const char*));

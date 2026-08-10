@@ -7,10 +7,17 @@
 // json中无该字段/文件不存在时，使用默认值（速度12，急弯外轮比例0.65，急弯内轮反转比例-0.3，
 // 算法默认bangbang，PID增益Kp40/Ki0/Kd5，文件log默认关闭，阈值为sensor_module内置默认值）
 
-void config_begin();             // 挂载LittleFS，从/config.json加载配置（失败则用默认值）
+// 传感器值保存位掩码（config_save_sensor用），可按位或组合
+#define SENSOR_SAVE_WHITE  0x1
+#define SENSOR_SAVE_BLACK  0x2
+#define SENSOR_SAVE_THRESH 0x4
+#define SENSOR_SAVE_ALL    (SENSOR_SAVE_WHITE | SENSOR_SAVE_BLACK | SENSOR_SAVE_THRESH)
+
+void config_begin();             // 挂载LittleFS，从/config.json加载参数、从/sensor.json加载传感器值
 int  config_get_speed();         // 获取当前速度档位(1~40)
 void config_set_speed(int level);// 设置当前速度档位（仅内存，不写入Flash）
-void config_save();              // 把当前内存中的速度档位和传感器阈值写入/config.json
+void config_save();              // 保存非传感器参数到/config.json（不动传感器值，传感器值用config_save_sensor）
+void config_save_sensor(int mask);// 保存传感器值到/sensor.json；mask选white/black/threshold(见上方位掩码)，读-改-写只更新选中项
 void config_print();             // 打印当前配置的JSON内容（Serial+BT）
 
 // 生成一行紧凑的"当前生效参数"快照（PARAMS行，给track_module的内存log用，见"LOG精简方案.md"4.3节）。

@@ -332,12 +332,78 @@ static void handle_command(const char* cmd) {
       reply(buf);
     }
 
-  // --- save ---
+  // --- save (仅非传感器参数，不动传感器值) ---
   } else if (strcmp(cmd, "save") == 0) {
     config_save();
-    char buf[48];
-    snprintf(buf, sizeof(buf), ">>> Config saved (speed=%d)\r\n", config_get_speed());
+    char buf[72];
+    snprintf(buf, sizeof(buf), ">>> Params saved to /config.json (speed=%d); sensor values use 'savesensor'\r\n",
+             config_get_speed());
     reply(buf);
+
+  // --- savesensor [white|black|threshold] (传感器值独立存/sensor.json) ---
+  } else if (strncmp(cmd, "savesensor", 10) == 0) {
+    const char* p = cmd + 10;
+    while (*p == ' ') p++;
+    int mask = 0;
+    const char* what = "all";
+    if (*p == '\0')                         { mask = SENSOR_SAVE_ALL; what = "white+black+threshold"; }
+    else if (strcmp(p, "white") == 0)       { mask = SENSOR_SAVE_WHITE; what = "white_ref"; }
+    else if (strcmp(p, "black") == 0)       { mask = SENSOR_SAVE_BLACK; what = "black_ref"; }
+    else if (strcmp(p, "threshold") == 0)   { mask = SENSOR_SAVE_THRESH; what = "threshold"; }
+    if (mask == 0) {
+      reply(">>> Usage: savesensor [white|black|threshold]\r\n");
+    } else {
+      config_save_sensor(mask);
+      char buf[72];
+      snprintf(buf, sizeof(buf), ">>> Saved %s to /sensor.json\r\n", what);
+      reply(buf);
+    }
+
+  // --- calib sweep|k|ratio|show (传感器阈值自动标定，见"传感器阈值自动标定方案.md"方案B) ---
+  } else if (strncmp(cmd, "calib", 5) == 0) {
+    const char* p = cmd + 5;
+    while (*p == ' ') p++;
+    if (strncmp(p, "sweep", 5) == 0) {
+      const char* a = p + 5;
+      while (*a == ' ') a++;
+      int sec = (*a) ? atoi(a) : sensor_get_calib_sweep_sec();
+      if (sec < 1 || sec > 60) {
+        reply(">>> Usage: calib sweep [seconds] (1~60)\r\n");
+      } else {
+        track_set(false);   // 标定期间必须停车：手持横扫，电机不能转
+        motor_stop();
+        sensor_calib_sweep(sec, reply);
+      }
+    } else if (strncmp(p, "k ", 2) == 0) {
+      int v = atoi(p + 2);
+      if (v < 1 || v > SENSOR_CALIB_MAX_K) {
+        char buf[48];
+        snprintf(buf, sizeof(buf), ">>> Usage: calib k VALUE (1~%d)\r\n", SENSOR_CALIB_MAX_K);
+        reply(buf);
+      } else {
+        sensor_set_calib_k(v);
+        char buf[64];
+        snprintf(buf, sizeof(buf), ">>> calib K set to %d (memory only, use save to persist)\r\n", v);
+        reply(buf);
+      }
+    } else if (strncmp(p, "ratio ", 6) == 0) {
+      float v = atof(p + 6);
+      if (v < 0.0f || v > 1.0f) {
+        reply(">>> Usage: calib ratio VALUE (0.0~1.0)\r\n");
+      } else {
+        sensor_set_calib_ratio(v);
+        char buf[64];
+        snprintf(buf, sizeof(buf), ">>> calib ratio set to %.2f (memory only, use save to persist)\r\n", v);
+        reply(buf);
+      }
+    } else if (strcmp(p, "show") == 0) {
+      char buf[80];
+      snprintf(buf, sizeof(buf), ">>> calib: k=%d ratio=%.2f sweep=%ds\r\n",
+               sensor_get_calib_k(), sensor_get_calib_ratio(), sensor_get_calib_sweep_sec());
+      reply(buf);
+    } else {
+      reply(">>> Usage: calib sweep [sec] | calib k N | calib ratio F | calib show\r\n");
+    }
 
   // --- config (print current config as JSON) ---
   } else if (strcmp(cmd, "config") == 0) {
@@ -373,8 +439,8 @@ static void handle_command(const char* cmd) {
       reply(">>> Usage: threshold CH VALUE (CH=1~8)\r\n");
     } else {
       sensor_set_threshold(ch - 1, value);
-      char buf[64];
-      snprintf(buf, sizeof(buf), ">>> CH%d threshold set to %d (memory only, use save to persist)\r\n",
+      char buf[72];
+      snprintf(buf, sizeof(buf), ">>> CH%d threshold set to %d (memory only, use savesensor to persist)\r\n",
                ch, value);
       reply(buf);
     }
@@ -386,8 +452,8 @@ static void handle_command(const char* cmd) {
       reply(">>> Usage: whiteref CH VALUE (CH=1~8)\r\n");
     } else {
       sensor_set_white_ref(ch - 1, value);
-      char buf[64];
-      snprintf(buf, sizeof(buf), ">>> CH%d white ref set to %d (memory only, use save to persist)\r\n",
+      char buf[72];
+      snprintf(buf, sizeof(buf), ">>> CH%d white ref set to %d (memory only, use savesensor to persist)\r\n",
                ch, value);
       reply(buf);
     }
@@ -397,8 +463,8 @@ static void handle_command(const char* cmd) {
       reply(">>> Usage: blackref CH VALUE (CH=1~8)\r\n");
     } else {
       sensor_set_black_ref(ch - 1, value);
-      char buf[64];
-      snprintf(buf, sizeof(buf), ">>> CH%d black ref set to %d (memory only, use save to persist)\r\n",
+      char buf[72];
+      snprintf(buf, sizeof(buf), ">>> CH%d black ref set to %d (memory only, use savesensor to persist)\r\n",
                ch, value);
       reply(buf);
     }
@@ -507,7 +573,13 @@ static void handle_command(const char* cmd) {
     reply("    lograte N            RAM log sample interval ms (default 10; 1=near per-loop/~1lap, 500=save RAM)\r\n");
     reply("    whiteref CH VALUE    set CHx (1~8) white reference (analog weighting for PID), memory only\r\n");
     reply("    blackref CH VALUE    set CHx (1~8) black reference (analog weighting for PID), memory only\r\n");
-    reply("    save                 save speed+turnspeed+mediumratio+sharpratio+xsharpratio+medium/sharp/hairpin speed+minpwm+algo+pid gains+slewrate+file log on/off+thresholds+white/black refs to flash (/config.json)\r\n");
+    reply("  -- auto sensor calibration (sweep car across black line, see design doc) --\r\n");
+    reply("    calib sweep [sec]    collect sec (default 5) @100Hz, auto-set white/black/threshold, print table (memory only)\r\n");
+    reply("    calib k N            extreme-group size K, 1~100 (default 100), memory only\r\n");
+    reply("    calib ratio F        threshold interp 0~1 (default 0.5): thr=white+(black-white)*F, memory only\r\n");
+    reply("    calib show           show current calib k/ratio/sweep\r\n");
+    reply("    save                 save params (speed/ratios/algo/pid/slew/log/calib k+ratio+sweep) to /config.json (NOT sensor values)\r\n");
+    reply("    savesensor [white|black|threshold]  save sensor values to /sensor.json (no arg = all three)\r\n");
     reply("    config               print current config as JSON\r\n");
     reply("    mem                  show free heap + ram log buffer size (auto-sized at boot, see ram_log_auto_init())\r\n");
     reply("    log dump             print current RAM log buffer over Serial (most recent track on run, no flash involved)\r\n");

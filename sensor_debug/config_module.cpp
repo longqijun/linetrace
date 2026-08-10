@@ -10,6 +10,7 @@
 #include <string.h>
 
 #define CONFIG_FILE   "/config.json"
+#define SENSOR_FILE   "/sensor.json"   // 传感器值(white/black/threshold)独立存这里，跟参数分开保存
 #define DEFAULT_SPEED 12  // 原1~10档的3，等比换算到1~40档（3*4）
 
 static int _speed = DEFAULT_SPEED;
@@ -48,13 +49,30 @@ static void copy_name(char* dst, const char* src) {
 static void cfg_out(const char* s) { Serial.print(s); bt_send(s); }          // config打印:同发Serial+BT
 static void build_int_array(char* out, size_t out_size, int (*getter)(int)); // 前置声明(定义在下方)
 
-void config_begin() {
-  _speed = DEFAULT_SPEED;
-  // 阈值默认值已在sensor_module内置，这里只在json存在时覆盖
+// 把长度严格等于SENSOR_COUNT的json数组逐路灌进setter；长度不符整个跳过(见下方错位坑注释)
+static void apply_sensor_array(JsonArray arr, void (*setter)(int, int)) {
+  if (arr.isNull() || arr.size() != SENSOR_COUNT) return;
+  int i = 0;
+  for (JsonVariant v : arr) { setter(i, v.as<int>()); i++; }
+}
 
-  if (!LittleFS.begin(true)) return;
-  if (!LittleFS.exists(CONFIG_FILE)) return;
+// 从/sensor.json载入传感器值(white/black/threshold)，覆盖内存。返回是否成功载入。
+static bool load_sensor_file() {
+  if (!LittleFS.exists(SENSOR_FILE)) return false;
+  File f = LittleFS.open(SENSOR_FILE, "r");
+  if (!f) return false;
+  DynamicJsonDocument doc(2048);
+  DeserializationError err = deserializeJson(doc, f);
+  f.close();
+  if (err) return false;
+  apply_sensor_array(doc["threshold"], sensor_set_threshold);
+  apply_sensor_array(doc["white_ref"], sensor_set_white_ref);
+  apply_sensor_array(doc["black_ref"], sensor_set_black_ref);
+  return true;
+}
 
+// 解析/config.json：算法条目 + 共享参数 + 标定参数 + (向后兼容)内嵌的传感器数组
+static void load_config_file() {
   File f = LittleFS.open(CONFIG_FILE, "r");
   if (!f) return;
 
@@ -99,36 +117,29 @@ void config_begin() {
   print_set_file(doc["file_log"] | print_file_enabled());
   track_set_log_interval(doc["lograte"] | track_get_log_interval());  // 全局:内存日志采样周期
 
-  // 长度必须严格等于当前SENSOR_COUNT才应用——如果以后SENSOR_COUNT又变了（比如加/减传感器路数），
-  // 旧config.json里长度不匹配的threshold数组会按下标错位覆盖到错误的通道上（2026-07-29实测踩过
-  // 这个坑：5路方案的[CH2..CH6]数组被当成8路方案的[CH1..CH5]加载，导致6路阈值全部错位一格），
-  // 长度不对就整个跳过，宁可用代码默认值也不要错位应用
-  JsonArray arr = doc["threshold"];
-  if (!arr.isNull() && arr.size() == SENSOR_COUNT) {
-    int i = 0;
-    for (JsonVariant v : arr) {
-      sensor_set_threshold(i, v.as<int>());
-      i++;
-    }
-  }
+  // 自动标定参数（旋钮，不是测得的传感器值，归config.json）
+  sensor_set_calib_k(doc["calib_k"] | sensor_get_calib_k());
+  sensor_set_calib_ratio(doc["calib_ratio"] | sensor_get_calib_ratio());
+  sensor_set_calib_sweep_sec(doc["calib_sweep_sec"] | sensor_get_calib_sweep_sec());
 
-  // 同上，长度不对就整个跳过，不按下标错位应用
-  JsonArray white_arr = doc["white_ref"];
-  if (!white_arr.isNull() && white_arr.size() == SENSOR_COUNT) {
-    int i = 0;
-    for (JsonVariant v : white_arr) {
-      sensor_set_white_ref(i, v.as<int>());
-      i++;
-    }
-  }
-  JsonArray black_arr = doc["black_ref"];
-  if (!black_arr.isNull() && black_arr.size() == SENSOR_COUNT) {
-    int i = 0;
-    for (JsonVariant v : black_arr) {
-      sensor_set_black_ref(i, v.as<int>());
-      i++;
-    }
-  }
+  // 向后兼容：旧config.json里内嵌的传感器数组(现已迁到/sensor.json)。apply_sensor_array内部
+  // 会校验长度严格等于SENSOR_COUNT才应用——长度不对整个跳过，宁可用默认值也不要按下标错位覆盖
+  // （2026-07-29实测踩过：5路[CH2..CH6]被当8路[CH1..CH5]加载，6路阈值全部错位一格）
+  apply_sensor_array(doc["threshold"], sensor_set_threshold);
+  apply_sensor_array(doc["white_ref"], sensor_set_white_ref);
+  apply_sensor_array(doc["black_ref"], sensor_set_black_ref);
+}
+
+void config_begin() {
+  _speed = DEFAULT_SPEED;
+  // 阈值默认值已在sensor_module内置，这里只在文件存在时覆盖
+  if (!LittleFS.begin(true)) return;
+
+  if (LittleFS.exists(CONFIG_FILE)) load_config_file();  // 参数 + (兼容)内嵌传感器值
+
+  // 传感器值优先用独立的/sensor.json；不存在则把刚从config.json/默认值载入的值一次性迁移过去，
+  // 之后传感器值就归/sensor.json管，config_save()不再写它们（见"传感器阈值自动标定方案.md"8.5节）
+  if (!load_sensor_file()) config_save_sensor(SENSOR_SAVE_ALL);
 }
 
 int config_get_speed() {
@@ -146,6 +157,11 @@ static void build_config_doc(JsonDocument& doc) {
   doc["file_log"] = print_file_enabled();
   doc["lograte"] = track_get_log_interval();
 
+  // 自动标定参数（旋钮）。传感器值(white/black/threshold)不在此，由config_save_sensor写/sensor.json
+  doc["calib_k"] = sensor_get_calib_k();
+  doc["calib_ratio"] = sensor_get_calib_ratio();
+  doc["calib_sweep_sec"] = sensor_get_calib_sweep_sec();
+
   JsonArray algos = doc.createNestedArray("algos");
   for (int id = 0; id < ALGO_MAX; id++) {
     if (!track_algo_used(id)) continue;
@@ -156,13 +172,6 @@ static void build_config_doc(JsonDocument& doc) {
     o["base"] = e.base;
     write_profile(o, e.params);
   }
-
-  JsonArray arr = doc.createNestedArray("threshold");
-  for (int i = 0; i < SENSOR_COUNT; i++) arr.add(sensor_get_threshold(i));
-  JsonArray white_arr = doc.createNestedArray("white_ref");
-  for (int i = 0; i < SENSOR_COUNT; i++) white_arr.add(sensor_get_white_ref(i));
-  JsonArray black_arr = doc.createNestedArray("black_ref");
-  for (int i = 0; i < SENSOR_COUNT; i++) black_arr.add(sensor_get_black_ref(i));
 }
 
 void config_save() {
@@ -170,6 +179,35 @@ void config_save() {
   build_config_doc(doc);
 
   File f = LittleFS.open(CONFIG_FILE, "w");
+  if (!f) return;
+  serializeJson(doc, f);
+  f.close();
+}
+
+// 保存传感器值到/sensor.json：读现有文件→只覆盖mask选中的数组→写回，未选中的原样保留。
+// 这样 savesensor white 不会动 black/threshold，跟 save(参数)也互不干扰(不同文件)。
+void config_save_sensor(int mask) {
+  DynamicJsonDocument doc(2048);
+  if (LittleFS.exists(SENSOR_FILE)) {          // 先读回现有内容，保住不改的项
+    File rf = LittleFS.open(SENSOR_FILE, "r");
+    if (rf) { deserializeJson(doc, rf); rf.close(); }
+  }
+  if (mask & SENSOR_SAVE_THRESH) {
+    doc.remove("threshold");
+    JsonArray a = doc.createNestedArray("threshold");
+    for (int i = 0; i < SENSOR_COUNT; i++) a.add(sensor_get_threshold(i));
+  }
+  if (mask & SENSOR_SAVE_WHITE) {
+    doc.remove("white_ref");
+    JsonArray a = doc.createNestedArray("white_ref");
+    for (int i = 0; i < SENSOR_COUNT; i++) a.add(sensor_get_white_ref(i));
+  }
+  if (mask & SENSOR_SAVE_BLACK) {
+    doc.remove("black_ref");
+    JsonArray a = doc.createNestedArray("black_ref");
+    for (int i = 0; i < SENSOR_COUNT; i++) a.add(sensor_get_black_ref(i));
+  }
+  File f = LittleFS.open(SENSOR_FILE, "w");
   if (!f) return;
   serializeJson(doc, f);
   f.close();
@@ -191,6 +229,9 @@ void config_print() {
   snprintf(line, sizeof(line), "  white_ref=%s\r\n", arr); cfg_out(line);
   build_int_array(arr, sizeof(arr), sensor_get_black_ref);
   snprintf(line, sizeof(line), "  black_ref=%s\r\n", arr); cfg_out(line);
+  snprintf(line, sizeof(line), "  calib: k=%d ratio=%.2f sweep=%ds\r\n",
+           sensor_get_calib_k(), sensor_get_calib_ratio(), sensor_get_calib_sweep_sec());
+  cfg_out(line);
 
   // ---- 算法参数(每条一算法, *=当前激活) ----
   cfg_out(">>> config —— 算法参数(*=当前激活):\r\n");
